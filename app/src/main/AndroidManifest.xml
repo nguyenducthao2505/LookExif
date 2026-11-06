@@ -50,5 +50,10 @@
         <activity
             android:name=".EditActivity"
             android:exported="false" />
+
+        <activity
+            android:name=".ZoomActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen" />
     </application>
 </manifest>
