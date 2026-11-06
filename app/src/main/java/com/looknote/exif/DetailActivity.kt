@@ -76,6 +76,7 @@ class DetailActivity : Activity() {
             adjustViewBounds = true
             scaleType = ImageView.ScaleType.FIT_CENTER
             setBackgroundColor(Color.TRANSPARENT)
+            setOnClickListener { openZoom() }
         }
         content.addView(image, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
@@ -83,7 +84,7 @@ class DetailActivity : Activity() {
         infoBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         content.addView(infoBox)
         content.addView(TextView(this).apply {
-            text = "Vuốt trái / phải để xem ảnh khác"
+            text = "Chạm vào ảnh để phóng to · Vuốt trái / phải để xem ảnh khác"
             textSize = 12f
             setTextColor(Ui.mute)
             gravity = Gravity.CENTER
@@ -112,6 +113,13 @@ class DetailActivity : Activity() {
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
         if (::gestures.isInitialized) gestures.onTouchEvent(ev)
         return super.dispatchTouchEvent(ev)
+    }
+
+    private fun openZoom() {
+        val uri = Gallery.current.getOrNull(index) ?: return
+        startActivity(android.content.Intent(this, ZoomActivity::class.java)
+            .setData(uri)
+            .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION))
     }
 
     private fun openEditor() {

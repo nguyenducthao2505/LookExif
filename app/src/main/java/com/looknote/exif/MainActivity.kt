@@ -33,6 +33,7 @@ class MainActivity : Activity() {
 
     private lateinit var grid: GridView
     private lateinit var spinner: Spinner
+    private lateinit var typeSpinner: Spinner
     private lateinit var status: TextView
     private lateinit var permBox: LinearLayout
     private lateinit var loader: ThumbLoader
@@ -41,6 +42,8 @@ class MainActivity : Activity() {
     private var shown: List<MediaItem> = emptyList()
     private var buckets: List<String> = listOf(ALL)
     private var selectedBucket = ALL
+    private var typeFilter = 0          // 0 tất cả, 1 ảnh gốc máy ảnh, 2 ảnh đã chỉnh
+    private var scanGen = 0
 
     private val readPerm: String
         get() = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_IMAGES
@@ -81,7 +84,18 @@ class MainActivity : Activity() {
             background = Ui.rounded(this@MainActivity, Color.WHITE, 10, Ui.line)
             setPadding(dp(10), 0, dp(10), 0)
         }
-        header.addView(spinner, LinearLayout.LayoutParams(
+        typeSpinner = Spinner(this).apply {
+            background = Ui.rounded(this@MainActivity, Color.WHITE, 10, Ui.line)
+            setPadding(dp(10), 0, dp(10), 0)
+            val ad = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_item,
+                listOf("Mọi loại ảnh", "Ảnh gốc máy ảnh", "Ảnh đã chỉnh"))
+            ad.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+            adapter = ad
+        }
+        val filterRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        filterRow.addView(spinner, LinearLayout.LayoutParams(0, dp(42), 1f).apply { rightMargin = dp(8) })
+        filterRow.addView(typeSpinner, LinearLayout.LayoutParams(0, dp(42), 1f))
+        header.addView(filterRow, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, dp(42)
         ).apply { topMargin = dp(10) })
 
@@ -136,6 +150,16 @@ class MainActivity : Activity() {
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
+        typeSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                if (position != typeFilter) {
+                    typeFilter = position
+                    applyFilter()
+                    if (typeFilter == 1) startScan()
+                }
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
 
         handleIntent(intent)
         if (!hasPermission()) askPermission()
@@ -148,6 +172,7 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        scanGen++
         loader.shutdown()
     }
 
@@ -173,6 +198,7 @@ class MainActivity : Activity() {
         permBox.visibility = if (show) View.VISIBLE else View.GONE
         grid.visibility = if (show) View.GONE else View.VISIBLE
         spinner.visibility = if (show) View.GONE else View.VISIBLE
+        typeSpinner.visibility = if (show) View.GONE else View.VISIBLE
         if (show) status.text = ""
     }
 
@@ -198,15 +224,51 @@ class MainActivity : Activity() {
                 selectedBucket = buckets[idx]
                 spinner.setSelection(idx)
                 applyFilter()
+                if (typeFilter == 1) startScan()
             }
         }.start()
     }
 
-    private fun applyFilter() {
-        shown = if (selectedBucket == ALL) all else all.filter { it.bucket == selectedBucket }
-        status.text = if (shown.isEmpty()) "Không có ảnh nào" else
-            "${shown.size} ảnh · Nhãn góc ảnh là Creative Look (chỉ ảnh Sony)"
+    private fun applyFilter(scanStatus: String? = null) {
+        val inBucket = if (selectedBucket == ALL) all else all.filter { it.bucket == selectedBucket }
+        shown = when (typeFilter) {
+            1 -> inBucket.filter { CameraScan.isOriginal(it) }
+            2 -> inBucket.filter { CameraScan.isEditedName(it.name) }
+            else -> inBucket
+        }
+        status.text = when {
+            scanStatus != null -> "${shown.size} ảnh · $scanStatus"
+            shown.isEmpty() -> "Không có ảnh nào"
+            typeFilter == 1 -> "${shown.size} ảnh gốc chụp từ máy ảnh"
+            typeFilter == 2 -> "${shown.size} ảnh đã chỉnh màu bằng LookExif"
+            else -> "${shown.size} ảnh · Nhãn góc ảnh là Creative Look (chỉ ảnh Sony)"
+        }
         (grid.adapter as BaseAdapter).notifyDataSetChanged()
+    }
+
+    /** Quét EXIF ở nền để nhận ra ảnh gốc máy ảnh; cập nhật lưới dần dần. */
+    private fun startScan() {
+        val gen = ++scanGen
+        val inBucket = if (selectedBucket == ALL) all else all.filter { it.bucket == selectedBucket }
+        val rest = all.filter { it.bucket != selectedBucket || selectedBucket == ALL }
+        val order = (inBucket + rest).distinctBy { it.id }
+        Thread {
+            CameraScan.load(this)
+            val todo = order.filter { CameraScan.get(it.id) == null }
+            if (todo.isEmpty()) { runOnUiThread { if (gen == scanGen) applyFilter() }; return@Thread }
+            var done = 0
+            for (item in todo) {
+                if (gen != scanGen) break
+                CameraScan.put(item.id, CameraScan.classify(this, item))
+                done++
+                if (done % 40 == 0 || done == todo.size) {
+                    if (done % 400 == 0) CameraScan.save(this)
+                    val msg = if (done < todo.size) "Đang quét ảnh máy ảnh $done/${todo.size}..." else null
+                    runOnUiThread { if (gen == scanGen && typeFilter == 1) applyFilter(msg) }
+                }
+            }
+            CameraScan.save(this)
+        }.start()
     }
 
     private fun openDetail(pos: Int) {

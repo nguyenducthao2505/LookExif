@@ -126,3 +126,75 @@ class ThumbLoader(private val c: Context) {
 
     fun shutdown() = exec.shutdownNow()
 }
+
+/**
+ * Phân loại ảnh: ảnh gốc máy ảnh hay không, đã qua chỉnh sửa hay chưa.
+ * Kết quả được lưu lại để lần sau không phải đọc lại file.
+ */
+object CameraScan {
+    const val SCANNED = 1
+    const val CAMERA = 2
+    const val EDITED = 4
+
+    private val flags = HashMap<Long, Int>()
+    private var loaded = false
+    private val brands = listOf(
+        "SONY", "CANON", "FUJIFILM", "NIKON", "PANASONIC", "OLYMPUS", "OM DIGITAL",
+        "LEICA", "RICOH", "PENTAX", "HASSELBLAD", "SIGMA", "KODAK"
+    )
+    private val editors = listOf(
+        "lightroom", "photoshop", "snapseed", "picsart", "vsco", "meitu", "capcut",
+        "lookexif", "gimp", "affinity", "luminar", "polarr", "facetune"
+    )
+
+    @Synchronized
+    fun load(c: android.content.Context) {
+        if (loaded) return
+        loaded = true
+        try {
+            val f = java.io.File(c.filesDir, "scan.txt")
+            if (f.exists()) f.forEachLine { line ->
+                val p = line.split(',')
+                if (p.size == 2) flags[p[0].toLong()] = p[1].toInt()
+            }
+        } catch (e: Exception) { }
+    }
+
+    @Synchronized
+    fun save(c: android.content.Context) {
+        try {
+            val sb = StringBuilder()
+            for ((k, v) in flags) sb.append(k).append(',').append(v).append('\n')
+            java.io.File(c.filesDir, "scan.txt").writeText(sb.toString())
+        } catch (e: Exception) { }
+    }
+
+    @Synchronized
+    fun get(id: Long): Int? = flags[id]
+
+    @Synchronized
+    fun put(id: Long, v: Int) { flags[id] = v }
+
+    fun isOriginal(item: MediaItem): Boolean {
+        val f = get(item.id) ?: return false
+        return (f and CAMERA) != 0 && (f and EDITED) == 0 && !isEditedName(item.name)
+    }
+
+    fun isEditedName(name: String) = name.contains("_LX-")
+
+    /** Đọc phần đầu file và phân loại. */
+    fun classify(c: android.content.Context, item: MediaItem): Int {
+        var v = SCANNED
+        try {
+            val bytes = Ui.readHead(c, item.uri, 128 * 1024)
+            val p = ExifParser(bytes)
+            val r = p.parse()
+            val make = r.ifd0[0x010F]?.let { p.string(it) }?.uppercase() ?: ""
+            val soft = r.ifd0[0x0131]?.let { p.string(it) }?.lowercase() ?: ""
+            if (make.isNotBlank() && brands.any { make.startsWith(it) }) v = v or CAMERA
+            if (editors.any { soft.contains(it) }) v = v or EDITED
+        } catch (e: Exception) { }
+        if (isEditedName(item.name)) v = v or EDITED
+        return v
+    }
+}

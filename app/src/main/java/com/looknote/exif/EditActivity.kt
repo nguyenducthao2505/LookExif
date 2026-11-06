@@ -15,36 +15,46 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
-import android.widget.FrameLayout
+import android.widget.CheckBox
 import android.widget.HorizontalScrollView
-import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.Executors
 
-/** Màn chỉnh màu: áp một trong 7 công thức theo bảng rồi lưu thành ảnh mới. */
+/**
+ * Màn chỉnh ảnh: làm mịn da, xóa mụn, áp một trong 7 công thức màu, phóng to để soi,
+ * rồi lưu thành ảnh mới (ảnh gốc giữ nguyên).
+ */
 class EditActivity : Activity() {
 
     private lateinit var uri: Uri
-    private lateinit var preview: ImageView
-    private lateinit var compareLabel: TextView
+    private lateinit var zoom: ZoomView
     private lateinit var summary: TextView
+    private lateinit var faceInfo: TextView
     private lateinit var strengthLabel: TextView
     private lateinit var evLabel: TextView
+    private lateinit var smoothLabel: TextView
     private lateinit var evBar: SeekBar
     private lateinit var saveBtn: Button
+    private lateinit var compareBtn: Button
     private val chips = ArrayList<Button>()
 
     private var base: Bitmap? = null
     private var processed: Bitmap? = null
     private var orientation = 1
-    private var selected = -1          // -1 = ảnh gốc
+    private var faces: List<FaceRegion>? = null
+    private var selected = -1          // -1 = không áp màu
     private var strength = 100         // %
     private var ev = 0.0
+    private var smooth = 0             // % làm mịn da
+    private var blemish = false
     private var token = 0
     private var saving = false
+    private var deltaKey = ""
+    private var delta: SkinRetouch.Delta? = null
     private val worker = Executors.newSingleThreadExecutor()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -71,7 +81,7 @@ class EditActivity : Activity() {
         bar.addView(Ui.button(this, "‹ Quay lại", false) { finish() },
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(40)))
         bar.addView(TextView(this).apply {
-            text = "Chỉnh màu"
+            text = "Chỉnh ảnh"
             textSize = 17f
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(Ui.ink)
@@ -81,53 +91,68 @@ class EditActivity : Activity() {
         bar.addView(saveBtn, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(40)))
         root.addView(bar)
 
-        // ----- Ảnh xem trước (giữ tay để xem ảnh gốc) -----
-        val frame = FrameLayout(this)
-        preview = ImageView(this).apply { scaleType = ImageView.ScaleType.FIT_CENTER }
-        frame.addView(preview, FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        compareLabel = TextView(this).apply {
-            text = "Ảnh gốc"
-            textSize = 13f
-            setTypeface(typeface, Typeface.BOLD)
-            setTextColor(Color.WHITE)
-            background = Ui.rounded(this@EditActivity, Color.parseColor("#AA000000"), 8)
-            setPadding(dp(10), dp(4), dp(10), dp(4))
-            visibility = View.GONE
+        // ----- Ảnh xem trước: chụm để phóng to -----
+        zoom = ZoomView(this).apply { setBackgroundColor(Color.parseColor("#EDE8E0")) }
+        root.addView(zoom, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f).apply {
+            leftMargin = dp(8); rightMargin = dp(8)
+        })
+
+        // ----- Bảng điều khiển (cuộn được) -----
+        val panelScroll = ScrollView(this)
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(6), dp(12), dp(12))
         }
-        frame.addView(compareLabel, FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
-            Gravity.TOP or Gravity.CENTER_HORIZONTAL
-        ).apply { topMargin = dp(8) })
-        frame.setOnTouchListener { _, me ->
+        panelScroll.addView(panel)
+
+        compareBtn = Ui.button(this, "Giữ để xem ảnh gốc", false) { }
+        compareBtn.setOnTouchListener { v, me ->
             when (me.action) {
-                MotionEvent.ACTION_DOWN -> {
-                    if (selected >= 0 && base != null) {
-                        preview.setImageBitmap(base); compareLabel.visibility = View.VISIBLE
-                    }
-                }
+                MotionEvent.ACTION_DOWN -> base?.let { zoom.swapBitmap(it) }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    compareLabel.visibility = View.GONE
-                    preview.setImageBitmap(if (selected >= 0) processed ?: base else base)
+                    zoom.swapBitmap(processed ?: base); v.performClick()
                 }
             }
             true
         }
-        root.addView(frame, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f).apply {
-            leftMargin = dp(8); rightMargin = dp(8)
+        panel.addView(compareBtn, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(38)))
+
+        // --- Da ---
+        panel.addView(sectionTitle("Da"))
+        faceInfo = TextView(this).apply {
+            textSize = 12f; setTextColor(Ui.mute); text = "Đang tìm khuôn mặt..."
+        }
+        panel.addView(faceInfo)
+        val skinRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        skinRow.addView(CheckBox(this).apply {
+            text = "Xóa mụn"
+            setTextColor(Ui.ink)
+            setOnCheckedChangeListener { _, on -> blemish = on; render() }
+        })
+        smoothLabel = label().apply { setPadding(dp(16), 0, 0, 0) }
+        skinRow.addView(smoothLabel)
+        panel.addView(skinRow)
+        panel.addView(SeekBar(this).apply {
+            max = 100; progress = 0
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) {
+                    smooth = p; updateLabels()
+                }
+                override fun onStartTrackingTouch(s: SeekBar?) {}
+                override fun onStopTrackingTouch(s: SeekBar?) { render() }
+            })
         })
 
-        // ----- Bảng điều khiển -----
-        val panel = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), dp(8), dp(12), dp(14))
-        }
-
+        // --- Màu ---
+        panel.addView(sectionTitle("Màu"))
         val hs = HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false }
         val chipRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        val labels = listOf("Gốc") + Presets.all.map { "${it.slot} · ${it.name}" }
-        labels.forEachIndexed { i, label ->
-            val b = Ui.button(this, label, false) { select(i - 1) }
+        val labels = listOf("Không") + Presets.all.map { "${it.slot} · ${it.name}" }
+        labels.forEachIndexed { i, text ->
+            val b = Ui.button(this, text, false) { select(i - 1) }
             chips += b
             chipRow.addView(b, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(40)).apply { rightMargin = dp(6) })
         }
@@ -135,9 +160,9 @@ class EditActivity : Activity() {
         panel.addView(hs)
 
         summary = TextView(this).apply {
-            textSize = 12.5f
+            textSize = 12f
             setTextColor(Ui.mute)
-            setPadding(dp(2), dp(8), 0, dp(2))
+            setPadding(dp(2), dp(6), 0, 0)
         }
         panel.addView(summary)
 
@@ -147,10 +172,10 @@ class EditActivity : Activity() {
             max = 100; progress = 100
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) {
-                    strength = p; updateLabels(); if (fromUser) render()
+                    strength = p; updateLabels()
                 }
                 override fun onStartTrackingTouch(s: SeekBar?) {}
-                override fun onStopTrackingTouch(s: SeekBar?) {}
+                override fun onStopTrackingTouch(s: SeekBar?) { render() }
             })
         })
 
@@ -160,22 +185,23 @@ class EditActivity : Activity() {
             max = 20; progress = 10
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) {
-                    ev = (p - 10) / 10.0; updateLabels(); if (fromUser) render()
+                    ev = (p - 10) / 10.0; updateLabels()
                 }
                 override fun onStartTrackingTouch(s: SeekBar?) {}
-                override fun onStopTrackingTouch(s: SeekBar?) {}
+                override fun onStopTrackingTouch(s: SeekBar?) { render() }
             })
         }
         panel.addView(evBar)
 
         panel.addView(TextView(this).apply {
-            text = "Giữ tay lên ảnh để so với ảnh gốc. Ảnh mới lưu vào Pictures/LookExif, ảnh gốc giữ nguyên. " +
-                "Đẹp nhất với ảnh chụp ở Creative Look ST, vì ảnh đã có màu sẵn sẽ bị chồng màu."
+            text = "Chụm hai ngón trên ảnh để phóng to, chạm đúp để xem chi tiết. " +
+                "Ảnh mới lưu vào Pictures/LookExif, ảnh gốc giữ nguyên. " +
+                "Màu đẹp nhất với ảnh chụp ở Creative Look ST."
             textSize = 11.5f
             setTextColor(Ui.mute)
-            setPadding(dp(2), dp(6), 0, 0)
+            setPadding(dp(2), dp(8), 0, 0)
         })
-        root.addView(panel)
+        root.addView(panelScroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(300)))
         setContentView(root)
 
         updateLabels()
@@ -186,19 +212,30 @@ class EditActivity : Activity() {
     override fun onDestroy() {
         super.onDestroy()
         worker.shutdownNow()
+        if (::zoom.isInitialized) zoom.release()
+    }
+
+    private fun sectionTitle(t: String) = TextView(this).apply {
+        text = t.uppercase()
+        textSize = 11.5f
+        letterSpacing = 0.06f
+        setTypeface(typeface, Typeface.BOLD)
+        setTextColor(Ui.accent)
+        setPadding(dp(2), dp(14), 0, dp(2))
     }
 
     private fun label() = TextView(this).apply {
         textSize = 13f
         setTextColor(Ui.ink)
-        setPadding(dp(2), dp(10), 0, 0)
+        setPadding(dp(2), dp(8), 0, 0)
     }
 
     private fun updateLabels() {
-        strengthLabel.text = "Độ mạnh: $strength%"
+        strengthLabel.text = "Độ mạnh màu: $strength%"
         val e = if (ev > 0) "+" + PhotoInfoBuilder.fmt(ev, 1) else PhotoInfoBuilder.fmt(ev, 1)
         evLabel.text = "Độ sáng: $e EV"
-        summary.text = if (selected < 0) "Ảnh gốc. Chọn một công thức màu ở trên."
+        smoothLabel.text = "Mịn da: $smooth%"
+        summary.text = if (selected < 0) "Chưa áp màu. Chọn một công thức ở trên."
         else Presets.all[selected].summary()
     }
 
@@ -212,14 +249,15 @@ class EditActivity : Activity() {
 
     private fun select(i: Int) {
         selected = i
-        if (i >= 0) {
-            ev = Presets.all[i].ev
-            evBar.progress = (ev * 10 + 10).toInt().coerceIn(0, 20)
-        }
+        ev = if (i >= 0) Presets.all[i].ev else 0.0
+        evBar.progress = (ev * 10 + 10).toInt().coerceIn(0, 20)
         updateLabels()
         styleChips()
         render()
     }
+
+    private val skinOn get() = smooth > 0 || blemish
+    private val anyEdit get() = skinOn || selected >= 0
 
     private fun loadBase() {
         summary.text = "Đang mở ảnh..."
@@ -229,22 +267,43 @@ class EditActivity : Activity() {
             val b = try { Ui.decodeMax(this, uri, 1800, orientation) } catch (e: Throwable) { null }
             runOnUiThread {
                 if (b == null) {
-                    summary.text = "Không mở được ảnh này (định dạng RAW chưa hỗ trợ chỉnh màu)."
+                    summary.text = "Không mở được ảnh này (định dạng RAW chưa hỗ trợ chỉnh)."
                     saveBtn.isEnabled = false
                 } else {
                     base = b
-                    preview.setImageBitmap(b)
+                    zoom.setImage(b)
                     updateLabels()
+                }
+            }
+            if (b != null) {
+                val f = try { FaceFinder.detect(b) } catch (e: Throwable) { emptyList() }
+                faces = f
+                runOnUiThread {
+                    faceInfo.text = if (f.isEmpty())
+                        "Không thấy khuôn mặt: chỉ làm mịn nhẹ theo màu da, không xóa mụn."
+                    else "Tìm thấy ${f.size} khuôn mặt. Mắt, lông mày, môi được giữ nguyên nét."
+                    if (skinOn) render()
                 }
             }
         }
     }
 
+    /** Độ lệch làm da (tính một lần cho mỗi mức cài đặt, dùng lại khi đổi màu). */
+    private fun skinDelta(b: Bitmap, px: IntArray): SkinRetouch.Delta? {
+        if (!skinOn) return null
+        val f = faces ?: return null
+        val key = "$smooth-$blemish-${f.size}"
+        if (key == deltaKey && delta != null) return delta
+        val d = SkinRetouch.compute(px, b.width, b.height, f, smooth / 100f, blemish)
+        delta = d; deltaKey = key
+        return d
+    }
+
     private fun render() {
         val b = base ?: return
-        if (selected < 0) { preview.setImageBitmap(b); return }
+        if (!anyEdit) { processed = null; zoom.swapBitmap(b); return }
         val my = ++token
-        val p = Presets.all[selected]
+        val p = if (selected >= 0) Presets.all[selected] else null
         val st = strength / 100f
         val e = ev
         worker.execute {
@@ -252,38 +311,47 @@ class EditActivity : Activity() {
             val w = b.width; val h = b.height
             val px = IntArray(w * h)
             b.getPixels(px, 0, w, 0, 0, w, h)
-            ColorEngine(p, e, st).process(px)
+            val d = skinDelta(b, px.copyOf())
+            if (d != null) SkinRetouch.apply(d, px, w, h, 0, h)
+            if (p != null) ColorEngine(p, e, st).process(px)
             val out = Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888)
             runOnUiThread {
                 if (my != token) return@runOnUiThread
                 processed = out
-                preview.setImageBitmap(out)
+                zoom.swapBitmap(out)
             }
         }
     }
 
     private fun save() {
-        if (selected < 0) { Ui.toast(this, "Hãy chọn một công thức màu trước"); return }
+        if (!anyEdit) { Ui.toast(this, "Chưa có chỉnh sửa nào"); return }
         if (saving) return
+        val b = base ?: return
         saving = true
         saveBtn.text = "Đang lưu..."
-        val p = Presets.all[selected]
+        val p = if (selected >= 0) Presets.all[selected] else null
         val st = strength / 100f
         val e = ev
-        Thread {
+        worker.execute {
             val msg = try {
+                // độ lệch làm da tính trên ảnh xem trước, phóng to áp lên ảnh lớn
+                val bpx = IntArray(b.width * b.height)
+                b.getPixels(bpx, 0, b.width, 0, 0, b.width, b.height)
+                val d = skinDelta(b, bpx)
+
                 val head = Ui.readHead(this, uri, 512 * 1024)
                 val full = Ui.decodeMax(this, uri, 4000, orientation) ?: throw IllegalStateException("không giải mã được ảnh")
                 val work = if (full.isMutable) full else full.copy(Bitmap.Config.ARGB_8888, true)
                 val w = work.width; val h = work.height
                 val rows = 256
                 val buf = IntArray(w * rows)
-                val engine = ColorEngine(p, e, st)
+                val engine = p?.let { ColorEngine(it, e, st) }
                 var y = 0
                 while (y < h) {
                     val hh = minOf(rows, h - y)
                     work.getPixels(buf, 0, w, 0, y, w, hh)
-                    engine.process(buf, 0, w * hh)
+                    if (d != null) SkinRetouch.apply(d, buf, w, h, y, hh)
+                    engine?.process(buf, 0, w * hh)
                     work.setPixels(buf, 0, w, 0, y, w, hh)
                     y += hh
                 }
@@ -293,7 +361,8 @@ class EditActivity : Activity() {
                 ExifParser.exifSegmentForEdit(head)?.let { jpg = ExifParser.insertExif(jpg, it) }
 
                 val baseName = Ui.displayName(this, uri).substringBeforeLast('.')
-                val outName = "${baseName}_LX-${p.slot}.jpg"
+                val tag = listOfNotNull(p?.slot, if (d != null) "da" else null).joinToString("-")
+                val outName = "${baseName}_LX-$tag.jpg"
                 val values = ContentValues().apply {
                     put(MediaStore.Images.Media.DISPLAY_NAME, outName)
                     put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
@@ -311,6 +380,7 @@ class EditActivity : Activity() {
                     values.put(MediaStore.Images.Media.IS_PENDING, 0)
                     contentResolver.update(out, values, null, null)
                 }
+                work.recycle()
                 "Đã lưu: Pictures/LookExif/$outName"
             } catch (t: Throwable) {
                 "Lỗi khi lưu: ${t.message}"
@@ -320,7 +390,7 @@ class EditActivity : Activity() {
                 saveBtn.text = "Lưu ảnh"
                 Ui.toast(this, msg)
             }
-        }.start()
+        }
     }
 
     private fun dp(v: Int) = Ui.dp(this, v)
