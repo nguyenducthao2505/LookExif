@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- thân máy ảnh -->
+    <path android:fillColor="#FFFFFF"
+        android:pathData="M34,42h10l4,-6h12l4,6h10a4,4 0,0 1,4 4v24a4,4 0,0 1,-4 4H34a4,4 0,0 1,-4 -4V46a4,4 0,0 1,4 -4z" />
+    <!-- ống kính -->
+    <path android:fillColor="#B5452F"
+        android:pathData="M54,47a11,11 0,1 1,0 22a11,11 0,1 1,0 -22z" />
+    <path android:fillColor="#FFFFFF"
+        android:pathData="M54,52a6,6 0,1 1,0 12a6,6 0,1 1,0 -12z" />
+</vector>
