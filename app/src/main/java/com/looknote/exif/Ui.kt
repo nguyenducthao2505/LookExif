@@ -154,6 +154,23 @@ object Ui {
         return Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, m, true)
     }
 
+    /** Giải mã sao cho chiều rộng không vượt quá [maxW] (tránh tràn bộ nhớ với ảnh 33MP). */
+    fun decodeMax(c: Context, u: Uri, maxW: Int, orientation: Int): Bitmap? {
+        val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        c.contentResolver.openInputStream(u)?.use { BitmapFactory.decodeStream(it, null, opts) }
+        if (opts.outWidth <= 0) return null
+        var sample = 1
+        while (maxOf(opts.outWidth, opts.outHeight) / sample > maxW) sample *= 2
+        val o2 = BitmapFactory.Options().apply { inSampleSize = sample; inMutable = true }
+        val bmp = c.contentResolver.openInputStream(u)?.use { BitmapFactory.decodeStream(it, null, o2) } ?: return null
+        val deg = when (orientation) { 3 -> 180f; 6 -> 90f; 8 -> 270f; else -> 0f }
+        if (deg == 0f) return bmp
+        val m = Matrix().apply { postRotate(deg) }
+        val r = Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, m, true)
+        if (r !== bmp) bmp.recycle()
+        return r
+    }
+
     fun displayName(c: Context, u: Uri): String {
         try {
             c.contentResolver.query(u, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cur ->

@@ -50,7 +50,7 @@ class DetailActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(10), dp(10), dp(10), dp(6))
         }
-        bar.addView(Ui.button(this, "‹ Lưới", false) { finish() },
+        bar.addView(Ui.button(this, "Lưới", false) { finish() },
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(40)))
         counter = TextView(this).apply {
             textSize = 14f
@@ -58,10 +58,12 @@ class DetailActivity : Activity() {
             gravity = Gravity.CENTER
         }
         bar.addView(counter, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        bar.addView(Ui.button(this, "Chỉnh màu", true) { openEditor() },
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(40)).apply { rightMargin = dp(6) })
         bar.addView(Ui.button(this, "‹", false) { go(-1) },
-            LinearLayout.LayoutParams(dp(48), dp(40)).apply { rightMargin = dp(6) })
+            LinearLayout.LayoutParams(dp(44), dp(40)).apply { rightMargin = dp(6) })
         bar.addView(Ui.button(this, "›", false) { go(1) },
-            LinearLayout.LayoutParams(dp(48), dp(40)))
+            LinearLayout.LayoutParams(dp(44), dp(40)))
         root.addView(bar)
 
         // ----- Nội dung -----
@@ -110,6 +112,13 @@ class DetailActivity : Activity() {
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
         if (::gestures.isInitialized) gestures.onTouchEvent(ev)
         return super.dispatchTouchEvent(ev)
+    }
+
+    private fun openEditor() {
+        val uri = Gallery.current.getOrNull(index) ?: return
+        startActivity(android.content.Intent(this, EditActivity::class.java)
+            .setData(uri)
+            .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION))
     }
 
     private fun go(step: Int) {

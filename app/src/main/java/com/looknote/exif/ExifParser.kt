@@ -7,6 +7,70 @@ package com.looknote.exif
  */
 class ExifParser(private val b: ByteArray) {
 
+
+    companion object {
+        /**
+         * Lấy nguyên đoạn APP1 Exif từ file JPEG gốc để chép sang ảnh đã chỉnh.
+         * Đặt lại Orientation = 1 (ảnh lưu ra đã xoay đúng) và bỏ ảnh thu nhỏ cũ (IFD1).
+         */
+        fun exifSegmentForEdit(jpeg: ByteArray): ByteArray? {
+            fun ub(i: Int) = jpeg[i].toInt() and 0xFF
+            if (jpeg.size < 4 || ub(0) != 0xFF || ub(1) != 0xD8) return null
+            var i = 2
+            while (i + 4 < jpeg.size) {
+                if (ub(i) != 0xFF) return null
+                val mk = ub(i + 1)
+                if (mk == 0xDA || mk == 0xD9) return null
+                val len = (ub(i + 2) shl 8) or ub(i + 3)
+                if (mk == 0xE1 && i + 10 < jpeg.size &&
+                    String(jpeg, i + 4, 4, Charsets.ISO_8859_1) == "Exif") {
+                    if (i + 2 + len > jpeg.size) return null
+                    val seg = jpeg.copyOfRange(i, i + 2 + len)
+                    try { patchSegment(seg) } catch (e: Exception) { }
+                    return seg
+                }
+                i += 2 + len
+            }
+            return null
+        }
+
+        private fun patchSegment(seg: ByteArray) {
+            val t = 10
+            val le = seg[t] == 'I'.code.toByte()
+            fun b(p: Int) = seg[p].toInt() and 0xFF
+            fun u16(p: Int) = if (le) b(p) or (b(p + 1) shl 8) else (b(p) shl 8) or b(p + 1)
+            fun u32(p: Int): Long = if (le)
+                (b(p).toLong() or (b(p + 1).toLong() shl 8) or (b(p + 2).toLong() shl 16) or (b(p + 3).toLong() shl 24))
+            else ((b(p).toLong() shl 24) or (b(p + 1).toLong() shl 16) or (b(p + 2).toLong() shl 8) or b(p + 3).toLong())
+            val ifd0 = t + u32(t + 4).toInt()
+            if (ifd0 + 2 > seg.size) return
+            val n = u16(ifd0)
+            for (k in 0 until n) {
+                val e = ifd0 + 2 + k * 12
+                if (e + 12 > seg.size) break
+                if (u16(e) == 0x0112 && u16(e + 2) == 3) {
+                    if (le) { seg[e + 8] = 1; seg[e + 9] = 0 } else { seg[e + 8] = 0; seg[e + 9] = 1 }
+                }
+            }
+            val next = ifd0 + 2 + n * 12
+            if (next + 4 <= seg.size) for (q in 0 until 4) seg[next + q] = 0
+        }
+
+        /** Chèn đoạn Exif vào JPEG mới (bỏ đoạn JFIF APP0 nếu có). */
+        fun insertExif(jpg: ByteArray, seg: ByteArray): ByteArray {
+            fun ub(i: Int) = jpg[i].toInt() and 0xFF
+            var p = 2
+            if (jpg.size > 6 && ub(2) == 0xFF && ub(3) == 0xE0) {
+                p = 4 + ((ub(4) shl 8) or ub(5))
+            }
+            val out = ByteArray(2 + seg.size + (jpg.size - p))
+            out[0] = 0xFF.toByte(); out[1] = 0xD8.toByte()
+            System.arraycopy(seg, 0, out, 2, seg.size)
+            System.arraycopy(jpg, p, out, 2 + seg.size, jpg.size - p)
+            return out
+        }
+    }
+
     private var base = 0
     private var le = true
 
