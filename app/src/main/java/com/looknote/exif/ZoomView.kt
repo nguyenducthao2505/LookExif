@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.BitmapRegionDecoder
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Rect
@@ -45,6 +46,37 @@ class ZoomView(c: Context) : View(c) {
     private val main = Handler(Looper.getMainLooper())
     private val exec = Executors.newSingleThreadExecutor()
     private var decoder: BitmapRegionDecoder? = null
+
+    // ----- so sánh chia đôi: bên trái ảnh gốc, bên phải ảnh đã chỉnh -----
+    private var compareImg: Bitmap? = null
+    private var split = 0.5f
+    private var dragging = false
+    private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; strokeWidth = 3f }
+    private val knobPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
+    private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE; textSize = 34f; setShadowLayer(4f, 0f, 1f, Color.BLACK)
+    }
+
+    /** Bật so sánh chia đôi với [original]; null để tắt. */
+    fun setCompare(original: Bitmap?) { compareImg = original; invalidate() }
+    val comparing get() = compareImg != null
+
+    // ----- lớp phủ vùng cháy sáng / mất chi tiết, nhấp nháy -----
+    private var overlay: Bitmap? = null
+    private var overlayVisible = true
+    private val blink = object : Runnable {
+        override fun run() {
+            if (overlay == null) return
+            overlayVisible = !overlayVisible; invalidate()
+            main.postDelayed(this, 500)
+        }
+    }
+
+    fun setOverlay(b: Bitmap?) {
+        main.removeCallbacks(blink)
+        overlay = b; overlayVisible = true; invalidate()
+        if (b != null) main.postDelayed(blink, 500)
+    }
 
     /** Trong khung cuộn: chiều cao theo tỉ lệ ảnh (tối đa 1,6 lần bề rộng). */
     var wrapAspect = false
@@ -101,6 +133,7 @@ class ZoomView(c: Context) : View(c) {
     fun swapBitmap(bmp: Bitmap?) { base = bmp; invalidate() }
 
     fun release() {
+        main.removeCallbacks(blink)
         exec.shutdownNow()
         decoder?.recycle(); decoder = null
     }
@@ -138,6 +171,19 @@ class ZoomView(c: Context) : View(c) {
     val isZoomed get() = scale > fitScale * 1.02f
 
     override fun onTouchEvent(e: MotionEvent): Boolean {
+        // kéo vạch so sánh
+        if (compareImg != null) {
+            val sx = width * split
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> if (kotlin.math.abs(e.x - sx) < 60f * resources.displayMetrics.density / 2f) {
+                    dragging = true; parent?.requestDisallowInterceptTouchEvent(true); return true
+                }
+                MotionEvent.ACTION_MOVE -> if (dragging) {
+                    split = (e.x / width).coerceIn(0.02f, 0.98f); invalidate(); return true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> if (dragging) { dragging = false; return true }
+            }
+        }
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> onHoldChange?.invoke(true)
             MotionEvent.ACTION_POINTER_DOWN -> {
@@ -160,12 +206,36 @@ class ZoomView(c: Context) : View(c) {
         m.postTranslate(tx, ty)
         canvas.drawBitmap(b, m, paint)
         val t = tile
-        if (t != null) {
+        if (t != null && compareImg == null) {
             val dst = RectF(
                 tx + tileRect.left * scale, ty + tileRect.top * scale,
                 tx + tileRect.right * scale, ty + tileRect.bottom * scale
             )
             canvas.drawBitmap(t, null, dst, paint)
+        }
+        val ov = overlay
+        if (ov != null && overlayVisible) {
+            val mo = Matrix()
+            mo.postScale(fullW * scale / ov.width, fullH * scale / ov.height)
+            mo.postTranslate(tx, ty)
+            canvas.drawBitmap(ov, mo, paint)
+        }
+        val cmp = compareImg
+        if (cmp != null) {
+            val sx = width * split
+            canvas.save()
+            canvas.clipRect(0f, 0f, sx, height.toFloat())
+            val mc = Matrix()
+            mc.postScale(fullW * scale / cmp.width, fullH * scale / cmp.height)
+            mc.postTranslate(tx, ty)
+            canvas.drawBitmap(cmp, mc, paint)
+            canvas.restore()
+            canvas.drawLine(sx, 0f, sx, height.toFloat(), linePaint)
+            canvas.drawCircle(sx, height / 2f, 22f, knobPaint)
+            labelPaint.textAlign = Paint.Align.RIGHT
+            canvas.drawText("Gốc", sx - 18f, 48f, labelPaint)
+            labelPaint.textAlign = Paint.Align.LEFT
+            canvas.drawText("Sau", sx + 18f, 48f, labelPaint)
         }
     }
 

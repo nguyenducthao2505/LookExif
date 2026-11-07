@@ -9,7 +9,9 @@ data class PhotoInfo(
     val name: String,
     val sections: List<Section>,
     val note: String?,
-    val orientation: Int
+    val orientation: Int,
+    /** Số liệu thô cho trợ lý chụp. */
+    val shot: Shot = Shot()
 ) {
     fun toText(): String {
         val sb = StringBuilder()
@@ -107,6 +109,13 @@ object PhotoInfoBuilder {
             "Đo sáng" to metering
         )
 
+        val baseShot = Shot(
+            shutter = r.exif[0x829A]?.let { p.rational(it) },
+            fnum = r.exif[0x829D]?.let { p.rational(it) },
+            iso = (num(r.exif, 0x8827)?.takeIf { it in 1..65534 } ?: num(r.exif, 0x8832))?.toInt(),
+            focal = r.exif[0x920A]?.let { p.rational(it) },
+            ev = r.exif[0x9204]?.let { p.rational(it) }
+        )
         val sections = ArrayList<Section>()
         sections += Section("Ảnh", picture)
         if (!isSony || r.sony.isEmpty()) {
@@ -114,7 +123,7 @@ object PhotoInfoBuilder {
             sections += Section("Máy & ống kính", camera)
             val note = if (!isSony) "Ảnh không phải của máy Sony nên không có thông số Creative Look."
             else "Không đọc được MakerNote của Sony. Ảnh có thể đã bị chỉnh sửa hoặc thu nhỏ (ví dụ chuyển qua Creators' App ở kích thước 2MP)."
-            return PhotoInfo(name, sections, note, orientation)
+            return PhotoInfo(name, sections, note, orientation, baseShot)
         }
 
         val s = r.sony
@@ -196,7 +205,13 @@ object PhotoInfoBuilder {
         sections += Section("Phơi sáng", exposure)
         sections += Section("Dải động & khử nhiễu", dr)
         sections += Section("Máy & ống kính", camera)
-        return PhotoInfo(name, sections, null, orientation)
+        val shot = baseShot.copy(
+            look = lookRaw?.let { lookName(it).substringBefore(" ") },
+            highlights = num(s, 0x2033)?.toInt(),
+            shadows = num(s, 0x2032)?.toInt(),
+            ab = ab, gm = gm
+        )
+        return PhotoInfo(name, sections, null, orientation, shot)
     }
 
     /**

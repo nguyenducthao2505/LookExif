@@ -22,6 +22,9 @@ object Gallery {
     /** Danh sách ảnh màn chi tiết đang duyệt (theo thứ tự lưới hoặc theo file đã chọn). */
     var current: List<Uri> = emptyList()
 
+    /** Danh sách ảnh chọn để chỉnh hàng loạt. */
+    var batch: List<Uri> = emptyList()
+
     fun query(c: Context): List<MediaItem> {
         val out = ArrayList<MediaItem>()
         val coll = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
@@ -127,16 +130,26 @@ class ThumbLoader(private val c: Context) {
     fun shutdown() = exec.shutdownNow()
 }
 
+/** Thông tin đã quét của một ảnh (lưu lại để không phải đọc lại). */
+class Meta(
+    var flags: Int, var look: String, var iso: Int, var lens: String,
+    var date: Int,      // yyyyMMdd, 0 nếu không rõ
+    var q: Int = -1     // -1 chưa kiểm tra lỗi; bit: 1 nhắm mắt, 2 nhòe, 4 không có mặt
+)
+
 /**
- * Phân loại ảnh: ảnh gốc máy ảnh hay không, đã qua chỉnh sửa hay chưa.
- * Kết quả được lưu lại để lần sau không phải đọc lại file.
+ * Phân loại ảnh: ảnh gốc máy ảnh hay không, đã qua chỉnh sửa chưa, Creative Look, ISO, ống kính, ngày chụp;
+ * và kiểm tra lỗi (nhắm mắt, nhòe). Kết quả được lưu lại để lần sau không phải đọc lại file.
  */
 object CameraScan {
     const val SCANNED = 1
     const val CAMERA = 2
     const val EDITED = 4
+    const val Q_EYES = 1
+    const val Q_BLUR = 2
+    const val Q_NOFACE = 4
 
-    private val flags = HashMap<Long, Int>()
+    private val meta = HashMap<Long, Meta>()
     private var loaded = false
     private val brands = listOf(
         "SONY", "CANON", "FUJIFILM", "NIKON", "PANASONIC", "OLYMPUS", "OM DIGITAL",
@@ -152,10 +165,10 @@ object CameraScan {
         if (loaded) return
         loaded = true
         try {
-            val f = java.io.File(c.filesDir, "scan.txt")
+            val f = java.io.File(c.filesDir, "scan2.txt")
             if (f.exists()) f.forEachLine { line ->
-                val p = line.split(',')
-                if (p.size == 2) flags[p[0].toLong()] = p[1].toInt()
+                val p = line.split('\t')
+                if (p.size == 7) meta[p[0].toLong()] = Meta(p[1].toInt(), p[2], p[3].toInt(), p[4], p[5].toInt(), p[6].toInt())
             }
         } catch (e: Exception) { }
     }
@@ -164,27 +177,34 @@ object CameraScan {
     fun save(c: android.content.Context) {
         try {
             val sb = StringBuilder()
-            for ((k, v) in flags) sb.append(k).append(',').append(v).append('\n')
-            java.io.File(c.filesDir, "scan.txt").writeText(sb.toString())
+            for ((k, m) in meta) sb.append(k).append('\t').append(m.flags).append('\t').append(m.look).append('\t')
+                .append(m.iso).append('\t').append(m.lens.replace('\t', ' ')).append('\t').append(m.date).append('\t').append(m.q).append('\n')
+            java.io.File(c.filesDir, "scan2.txt").writeText(sb.toString())
         } catch (e: Exception) { }
     }
 
-    @Synchronized
-    fun get(id: Long): Int? = flags[id]
-
-    @Synchronized
-    fun put(id: Long, v: Int) { flags[id] = v }
+    @Synchronized fun get(id: Long): Meta? = meta[id]
+    @Synchronized fun put(id: Long, m: Meta) { meta[id] = m }
+    @Synchronized fun allLooks(): List<String> = meta.values.map { it.look }.filter { it.isNotBlank() }.distinct().sorted()
+    @Synchronized fun allLenses(): List<String> = meta.values.map { it.lens }.filter { it.isNotBlank() }.distinct().sorted()
 
     fun isOriginal(item: MediaItem): Boolean {
-        val f = get(item.id) ?: return false
+        val f = get(item.id)?.flags ?: return false
         return (f and CAMERA) != 0 && (f and EDITED) == 0 && !isEditedName(item.name)
     }
 
     fun isEditedName(name: String) = name.contains("_LX-")
 
-    /** Đọc phần đầu file và phân loại. */
-    fun classify(c: android.content.Context, item: MediaItem): Int {
+    /** Ảnh có lỗi: nhắm mắt hoặc nhòe. */
+    fun isFaulty(item: MediaItem): Boolean {
+        val q = get(item.id)?.q ?: return false
+        return q > 0 && (q and (Q_EYES or Q_BLUR)) != 0
+    }
+
+    /** Đọc EXIF phần đầu file và phân loại. */
+    fun classify(c: android.content.Context, item: MediaItem): Meta {
         var v = SCANNED
+        var look = ""; var iso = 0; var lens = ""; var date = 0
         try {
             val bytes = Ui.readHead(c, item.uri, 128 * 1024)
             val p = ExifParser(bytes)
@@ -193,8 +213,32 @@ object CameraScan {
             val soft = r.ifd0[0x0131]?.let { p.string(it) }?.lowercase() ?: ""
             if (make.isNotBlank() && brands.any { make.startsWith(it) }) v = v or CAMERA
             if (editors.any { soft.contains(it) }) v = v or EDITED
+            r.sony[0xB020]?.let { look = PhotoInfoBuilder.lookName(p.string(it)).substringBefore(" ") }
+            iso = (r.exif[0x8827]?.let { p.firstLong(it) }?.takeIf { it in 1..65534 }
+                ?: r.exif[0x8832]?.let { p.firstLong(it) } ?: 0L).toInt()
+            lens = r.exif[0xA434]?.let { p.string(it) } ?: ""
+            val d = r.exif[0x9003]?.let { p.string(it) } ?: r.ifd0[0x0132]?.let { p.string(it) } ?: ""
+            if (d.length >= 10) date = (d.substring(0, 4) + d.substring(5, 7) + d.substring(8, 10)).toIntOrNull() ?: 0
         } catch (e: Exception) { }
         if (isEditedName(item.name)) v = v or EDITED
-        return v
+        val old = get(item.id)
+        return Meta(v, look, iso, lens, date, old?.q ?: -1)
+    }
+
+    /** Kiểm tra lỗi: nhắm mắt (ML Kit) và độ nét vùng mặt. */
+    fun quality(c: android.content.Context, item: MediaItem): Int {
+        return try {
+            val head = Ui.readHead(c, item.uri, 256 * 1024)
+            val orient = PhotoInfoBuilder.build("", head).orientation
+            val b = Ui.decodeMax(c, item.uri, 1000, orient) ?: return Q_NOFACE
+            val scan = FaceFinder.analyze(b, fast = true)
+            var q = 0
+            if (scan.eyesClosed > 0) q = q or Q_EYES
+            val f = scan.largest
+            if (f == null) q = q or Q_NOFACE
+            else if (f.width() >= 80 && FaceFinder.sharpness(b, f) < Assistant.BLUR_LIMIT) q = q or Q_BLUR
+            b.recycle()
+            q
+        } catch (e: Throwable) { Q_NOFACE }
     }
 }

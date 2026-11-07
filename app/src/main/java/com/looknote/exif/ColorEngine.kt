@@ -24,30 +24,46 @@ data class Preset(
     val wbNote: String,
     /** Tông riêng của loại phim: cộng vào R, G, B ở vùng tối / vùng sáng. */
     val filmShadow: FloatArray = floatArrayOf(0f, 0f, 0f),
-    val filmHighlight: FloatArray = floatArrayOf(0f, 0f, 0f)
+    val filmHighlight: FloatArray = floatArrayOf(0f, 0f, 0f),
+    /** Hiệu chỉnh theo máy thật: 3 đường cong 256 điểm (R, G, B) từ ảnh ST sang ảnh công thức. */
+    val calib: FloatArray? = null,
+    /** Hệ số độ bão hòa đi kèm hiệu chỉnh. */
+    val calibSat: Float = 1f
 ) {
+    /** Hai công thức có cùng thông số máy (dùng để nhận ra ảnh chụp bằng công thức nào). */
+    fun sameSettings(o: Preset): Boolean =
+        look == o.look && contrast == o.contrast && highlights == o.highlights && shadows == o.shadows &&
+            fade == o.fade && saturation == o.saturation &&
+            kotlin.math.abs(ab - o.ab) < 0.3 && kotlin.math.abs(gm - o.gm) < 0.3
+
     fun summary(): String {
         fun s(v: Int) = if (v > 0) "+$v" else "$v"
         fun sh(v: Double, p: String, n: String) =
             if (v == 0.0) "0" else if (v > 0) p + PhotoInfoBuilder.fmt(v, 1) else n + PhotoInfoBuilder.fmt(-v, 1)
         return "$look · C${s(contrast)} H${s(highlights)} S${s(shadows)} F$fade Sat${s(saturation)} · " +
-            "$wbNote ${sh(ab, "A", "B")} ${sh(gm, "M", "G")}"
+            "$wbNote ${sh(ab, "A", "B")} ${sh(gm, "M", "G")}" + (if (calib != null) " · đã hiệu chỉnh theo máy" else "")
     }
 }
 
 object Presets {
-    val all = listOf(
-        Preset("1", "Da trắng hồng (Canon)", "PT", -1, -2, 1, 0, 0, 0.0, 2.0, 0.7, "AWB"),
-        Preset("2", "Fuji Classic Neg", "FL", -1, -1, 1, 2, 0, 0.0, 2.0, 0.0, "AWB"),
-        Preset("3", "Fuji Pro 400H", "SH", -2, -3, 2, 2, -2, -1.0, 2.0, 0.7, "AWB"),
-        Preset("M1", "Kodak Portra 400", "PT", -1, -2, 1, 2, -1, 2.0, 1.0, 0.3, "Daylight",
-            floatArrayOf(0.004f, 0.0f, -0.006f), floatArrayOf(0.022f, 0.010f, -0.012f)),
-        Preset("M2", "Cinestill 800T", "FL", 1, -2, -1, 1, 1, -2.0, 1.0, -0.3, "3800K",
-            floatArrayOf(-0.045f, 0.010f, 0.045f), floatArrayOf(0.030f, 0.008f, -0.020f)),
-        Preset("M3", "Kodak Gold 200", "ST", 0, -1, -1, 2, 1, 3.0, 1.0, 0.3, "Daylight",
-            floatArrayOf(0.010f, 0.004f, -0.015f), floatArrayOf(0.025f, 0.018f, -0.030f)),
-        Preset("M4", "Cạnh cửa sổ", "FL", -1, -2, -9, 1, -2, -7.0, 2.0, 0.0, "AWB")
-    )
+    val defaults: List<Preset> = listOf(
+    Preset("1", "Da trắng hồng (Canon)", "PT", -1, -2, 1, 0, 0, 0.0, 2.0, 0.7, "AWB"),
+    Preset("2", "Fuji Classic Neg", "FL", -1, -1, 1, 2, 0, 0.0, 2.0, 0.0, "AWB"),
+    Preset("3", "Fuji Pro 400H", "SH", -2, -3, 2, 2, -2, -1.0, 2.0, 0.7, "AWB"),
+    Preset("M1", "Kodak Portra 400", "PT", -1, -2, 1, 2, -1, 2.0, 1.0, 0.3, "Daylight",
+        floatArrayOf(0.004f, 0.0f, -0.006f), floatArrayOf(0.022f, 0.010f, -0.012f)),
+    Preset("M2", "Cinestill 800T", "FL", 1, -2, -1, 1, 1, -2.0, 1.0, -0.3, "3800K",
+        floatArrayOf(-0.045f, 0.010f, 0.045f), floatArrayOf(0.030f, 0.008f, -0.020f)),
+    Preset("M3", "Kodak Gold 200", "ST", 0, -1, -1, 2, 1, 3.0, 1.0, 0.3, "Daylight",
+        floatArrayOf(0.010f, 0.004f, -0.015f), floatArrayOf(0.025f, 0.018f, -0.030f)),
+    Preset("M4", "Cạnh cửa sổ", "FL", -1, -2, -9, 1, -2, -7.0, 2.0, 0.0, "AWB")
+)
+
+    /** Danh sách công thức đang dùng (người dùng thêm/sửa được). */
+    @Volatile var all: List<Preset> = defaults
+    /** Công thức trong danh sách có cùng thông số máy với ảnh (để dùng hiệu chỉnh khi gỡ màu). */
+    fun match(src: Preset): Preset? = all.firstOrNull { it.calib != null && it.sameSettings(src) }
+
 }
 
 /**
@@ -114,6 +130,22 @@ class ColorEngine(p: Preset, evOverride: Double = p.ev, private val strength: Fl
         }
     }
 
+    private val calib = p.calib
+    private val calibSat = p.calibSat
+    // bù sáng khi dùng hiệu chỉnh: chỉ phần chênh so với mức bù sáng của công thức
+    private val evLut: FloatArray? = if (p.calib != null) FloatArray(1024) { i ->
+        val k = 2.0.pow((evOverride - p.ev) * 0.6)
+        (1.0 - (1.0 - i / 1023.0).pow(k)).toFloat()
+    } else null
+
+    private fun calibOut(ch: Int, v: Float): Float {
+        val c = calib!!
+        val x = v.coerceIn(0f, 1f) * 255f
+        val i = x.toInt().coerceAtMost(254)
+        val t = x - i
+        return c[ch * 256 + i] + (c[ch * 256 + i + 1] - c[ch * 256 + i]) * t
+    }
+
     private fun curve(v: Float): Float {
         val idx = (v.coerceIn(0f, 1f) * 1023f).toInt()
         return lut[idx]
@@ -129,20 +161,32 @@ class ColorEngine(p: Preset, evOverride: Double = p.ev, private val strength: Fl
             val g0 = ((c shr 8) and 0xFF) / 255f
             val b0 = (c and 0xFF) / 255f
 
-            var r = curve(r0 * gainR)
-            var g = curve(g0 * gainG)
-            var b = curve(b0 * gainB)
+            var r: Float; var g: Float; var b: Float
+            if (calib != null) {
+                // màu học từ ảnh thật của máy
+                r = calibOut(0, r0); g = calibOut(1, g0); b = calibOut(2, b0)
+                val l = 0.299f * r + 0.587f * g + 0.114f * b
+                r = l + (r - l) * calibSat; g = l + (g - l) * calibSat; b = l + (b - l) * calibSat
+                val el = evLut!!
+                r = el[(r.coerceIn(0f, 1f) * 1023f).toInt()]
+                g = el[(g.coerceIn(0f, 1f) * 1023f).toInt()]
+                b = el[(b.coerceIn(0f, 1f) * 1023f).toInt()]
+            } else {
+                r = curve(r0 * gainR)
+                g = curve(g0 * gainG)
+                b = curve(b0 * gainB)
 
-            val l = 0.299f * r + 0.587f * g + 0.114f * b
-            r = l + (r - l) * satMul
-            g = l + (g - l) * satMul
-            b = l + (b - l) * satMul
+                val l = 0.299f * r + 0.587f * g + 0.114f * b
+                r = l + (r - l) * satMul
+                g = l + (g - l) * satMul
+                b = l + (b - l) * satMul
 
-            val ws = (1 - l) * (1 - l)
-            val wh = l * l
-            r += shR * ws + hiR * wh
-            g += shG * ws + hiG * wh
-            b += shB * ws + hiB * wh
+                val ws = (1 - l) * (1 - l)
+                val wh = l * l
+                r += shR * ws + hiR * wh
+                g += shG * ws + hiG * wh
+                b += shB * ws + hiB * wh
+            }
 
             if (st < 1f) {
                 r = r0 + (r - r0) * st
@@ -161,10 +205,45 @@ class ColorEngine(p: Preset, evOverride: Double = p.ev, private val strength: Fl
  * Gỡ ngược màu của công thức đã dùng lúc chụp (đọc từ EXIF), đưa ảnh về gần trung tính
  * trước khi áp công thức mới. Chỉ gần đúng: vùng đã cháy sáng hoặc bị dìm đen không lấy lại được.
  */
-class LookInverter(src: Preset) {
+class LookInverter(src0: Preset) {
+    /** Nếu đã hiệu chỉnh công thức này theo máy thật thì dùng đường cong học được. */
+    private val cal = Presets.match(src0)
+    private val src = src0
     private val f = ColorEngine(src, 0.0, 1f)
     private val inv = FloatArray(1024)
     private val satInv = 1f / max(0.35f, f.satMul)
+    private val calInv: FloatArray? = cal?.calib?.let { c ->
+        // đảo từng đường cong 256 điểm
+        FloatArray(768).also { out ->
+            for (ch in 0 until 3) {
+                val mono = FloatArray(256); var m = 0f
+                for (i in 0 until 256) { m = max(m, c[ch * 256 + i]); mono[i] = m }
+                var j = 0
+                for (k in 0 until 256) {
+                    val y = k / 255f
+                    while (j < 255 && mono[j] < y) j++
+                    out[ch * 256 + k] = when {
+                        mono[j] < y -> 1f
+                        j == 0 -> 0f
+                        else -> {
+                            val y0 = mono[j - 1]; val y1 = mono[j]
+                            val t = if (y1 > y0) ((y - y0) / (y1 - y0)).coerceIn(0f, 1f) else 0.5f
+                            ((j - 1) + t) / 255f
+                        }
+                    }
+                }
+            }
+        }
+    }
+    private val calSatInv = 1f / max(0.35f, cal?.calibSat ?: 1f)
+
+    private fun calIn(ch: Int, v: Float): Float {
+        val c = calInv!!
+        val x = v.coerceIn(0f, 1f) * 255f
+        val i = x.toInt().coerceAtMost(254)
+        val t = x - i
+        return c[ch * 256 + i] + (c[ch * 256 + i + 1] - c[ch * 256 + i]) * t
+    }
 
     init {
         // đường cong thuận phải đơn điệu mới đảo được
@@ -196,6 +275,17 @@ class LookInverter(src: Preset) {
             var r = ((c shr 16) and 0xFF) / 255f
             var g = ((c shr 8) and 0xFF) / 255f
             var b = (c and 0xFF) / 255f
+
+            if (calInv != null) {
+                val l0 = 0.299f * r + 0.587f * g + 0.114f * b
+                r = l0 + (r - l0) * calSatInv; g = l0 + (g - l0) * calSatInv; b = l0 + (b - l0) * calSatInv
+                r = calIn(0, r); g = calIn(1, g); b = calIn(2, b)
+                val ri = (max(0f, min(1f, r)) * 255f + 0.5f).toInt()
+                val gi = (max(0f, min(1f, g)) * 255f + 0.5f).toInt()
+                val bi = (max(0f, min(1f, b)) * 255f + 0.5f).toInt()
+                px[i] = (a shl 24) or (ri shl 16) or (gi shl 8) or bi
+                continue
+            }
 
             // bỏ tông màu riêng của Look
             var l = 0.299f * r + 0.587f * g + 0.114f * b

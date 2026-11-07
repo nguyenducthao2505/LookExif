@@ -35,9 +35,7 @@ class DetailActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.statusBarColor = Ui.bg
-        @Suppress("DEPRECATION")
-        window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+        Ui.darkBars(this)
 
         index = intent.getIntExtra(EXTRA_INDEX, 0)
         if (Gallery.current.isEmpty()) { finish(); return }
@@ -62,7 +60,9 @@ class DetailActivity : Activity() {
             gravity = Gravity.CENTER
         }
         bar.addView(counter, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        bar.addView(Ui.button(this, "Chỉnh màu", true) { openEditor() },
+        bar.addView(Ui.button(this, "Chia sẻ", false) { shareCurrent() },
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(40)).apply { rightMargin = dp(6) })
+        bar.addView(Ui.button(this, "Chỉnh", true) { openEditor() },
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(40)).apply { rightMargin = dp(6) })
         bar.addView(Ui.button(this, "‹", false) { go(-1) },
             LinearLayout.LayoutParams(dp(44), dp(40)).apply { rightMargin = dp(6) })
@@ -155,6 +155,11 @@ class DetailActivity : Activity() {
             .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION))
     }
 
+    private fun shareCurrent() {
+        val uri = Gallery.current.getOrNull(index) ?: return
+        Share.prompt(this, uri, Ui.displayName(this, uri))
+    }
+
     private fun openEditor() {
         val uri = Gallery.current.getOrNull(index) ?: return
         startActivity(android.content.Intent(this, EditActivity::class.java)
@@ -210,6 +215,27 @@ class DetailActivity : Activity() {
                     val fw = if (pw > 0) pw else bmp.width
                     val fh = if (ph > 0) ph else bmp.height
                     image.setImage(bmp, fw, fh, uri, info.orientation)
+                }
+            }
+            // trợ lý chụp: mắt nhắm, độ nét, cháy sáng... rồi đưa lên đầu thẻ thông số
+            if (bmp != null && info.sections.isNotEmpty()) {
+                val scan = try { FaceFinder.analyze(bmp) } catch (e: Throwable) { null }
+                val px = IntArray(bmp.width * bmp.height)
+                bmp.getPixels(px, 0, bmp.width, 0, 0, bmp.width, bmp.height)
+                val hist = Analysis.histogram(px)
+                val sharp = scan?.largest?.let { FaceFinder.sharpness(bmp, it) }
+                val shot = info.shot.copy(
+                    faces = scan?.regions?.size ?: 0,
+                    eyesClosed = scan?.eyesClosed ?: 0,
+                    sharpness = sharp,
+                    clipHigh = hist.clipHigh, clipLow = hist.clipLow
+                )
+                val tips = Assistant.tips(shot)
+                val withTips = info.copy(sections = listOf(Section("Trợ lý chụp", tips, highlight = true)) + info.sections)
+                runOnUiThread {
+                    if (token != loadToken) return@runOnUiThread
+                    infoBox.removeAllViews()
+                    infoBox.addView(Ui.infoCard(this, withTips))
                 }
             }
         }.start()

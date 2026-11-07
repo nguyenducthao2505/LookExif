@@ -20,13 +20,22 @@ import android.widget.Toast
 
 /** Màu sắc và các hàm dựng giao diện dùng chung. */
 object Ui {
-    val bg = Color.parseColor("#F4F1EC")
-    val card = Color.WHITE
-    val ink = Color.parseColor("#1F1D1A")
-    val mute = Color.parseColor("#6B665E")
-    val accent = Color.parseColor("#B5452F")
-    val accentSoft = Color.parseColor("#FBEDE8")
-    val line = Color.parseColor("#E6E1D8")
+    // giao diện tối, chuẩn app ảnh: mắt đánh giá màu ảnh chính xác hơn
+    val bg = Color.parseColor("#121212")
+    val card = Color.parseColor("#1D1D1D")
+    val field = Color.parseColor("#262626")
+    val ink = Color.parseColor("#ECE8E1")
+    val mute = Color.parseColor("#9A948A")
+    val accent = Color.parseColor("#E07A5F")
+    val accentSoft = Color.parseColor("#2B201C")
+    val line = Color.parseColor("#353535")
+    val danger = Color.parseColor("#E5484D")
+
+    /** Thanh trạng thái tối, chữ sáng. */
+    fun darkBars(a: android.app.Activity) {
+        a.window.statusBarColor = bg
+        a.window.navigationBarColor = bg
+    }
 
     fun dp(c: Context, v: Int): Int = (v * c.resources.displayMetrics.density + 0.5f).toInt()
 
@@ -44,7 +53,7 @@ object Ui {
             textSize = 14f
             stateListAnimator = null
             setTextColor(if (primary) Color.WHITE else ink)
-            background = rounded(c, if (primary) accent else Color.WHITE, 12, if (primary) 0 else line)
+            background = rounded(c, if (primary) accent else field, 12, if (primary) 0 else line)
             setPadding(dp(c, 14), 0, dp(c, 14), 0)
             setOnClickListener { onClick() }
         }
