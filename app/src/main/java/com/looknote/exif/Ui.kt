@@ -171,6 +171,27 @@ object Ui {
         return r
     }
 
+    /** Kích thước thật của ảnh (đã xoay theo EXIF); (0, 0) nếu không đọc được. */
+    fun pixelSize(c: Context, u: Uri, orientation: Int): Pair<Int, Int> {
+        return try {
+            val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            c.contentResolver.openInputStream(u)?.use { BitmapFactory.decodeStream(it, null, o) }
+            if (o.outWidth <= 0) 0 to 0
+            else if (orientation == 6 || orientation == 8) o.outHeight to o.outWidth
+            else o.outWidth to o.outHeight
+        } catch (e: Exception) { 0 to 0 }
+    }
+
+    /** Dung lượng file (byte); 0 nếu không biết. */
+    fun fileSize(c: Context, u: Uri): Long {
+        try {
+            c.contentResolver.query(u, arrayOf(android.provider.OpenableColumns.SIZE), null, null, null)?.use { cur ->
+                if (cur.moveToFirst() && !cur.isNull(0)) return cur.getLong(0)
+            }
+        } catch (e: Exception) { }
+        return 0
+    }
+
     fun displayName(c: Context, u: Uri): String {
         try {
             c.contentResolver.query(u, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cur ->

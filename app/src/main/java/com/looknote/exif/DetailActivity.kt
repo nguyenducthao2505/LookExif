@@ -156,7 +156,10 @@ class DetailActivity : Activity() {
         Thread {
             val name = Ui.displayName(this, uri)
             val info = try {
-                PhotoInfoBuilder.build(name, Ui.readHead(this, uri, 8 * 1024 * 1024))
+                val head = Ui.readHead(this, uri, 8 * 1024 * 1024)
+                val orient = PhotoInfoBuilder.build(name, head).orientation
+                val (pw, ph) = Ui.pixelSize(this, uri, orient)
+                PhotoInfoBuilder.build(name, head, pw, ph, Ui.fileSize(this, uri))
             } catch (e: Exception) {
                 PhotoInfo(name, emptyList(), "Lỗi đọc file: ${e.message}", 1)
             }
