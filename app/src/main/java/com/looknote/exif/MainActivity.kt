@@ -2,6 +2,7 @@ package com.looknote.exif
 
 import android.Manifest
 import android.app.Activity
+import android.content.res.Configuration
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
@@ -128,7 +129,7 @@ class MainActivity : Activity() {
 
         // ----- Lưới ảnh -----
         grid = GridView(this).apply {
-            numColumns = 3
+            numColumns = columnsFor(resources.configuration)
             horizontalSpacing = dp(3)
             verticalSpacing = dp(3)
             stretchMode = GridView.STRETCH_COLUMN_WIDTH
@@ -163,6 +164,23 @@ class MainActivity : Activity() {
 
         handleIntent(intent)
         if (!hasPermission()) askPermission()
+    }
+
+    /** Số cột lưới theo bề rộng màn hình: điện thoại 3, máy tính bảng 4–7. */
+    private fun columnsFor(c: Configuration): Int {
+        val w = c.screenWidthDp
+        return when {
+            w >= 1200 -> 7
+            w >= 960 -> 6
+            w >= 760 -> 5
+            w >= 560 -> 4
+            else -> 3
+        }
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        grid.numColumns = columnsFor(newConfig)
     }
 
     override fun onResume() {

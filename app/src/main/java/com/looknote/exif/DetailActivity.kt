@@ -1,6 +1,7 @@
 package com.looknote.exif
 
 import android.app.Activity
+import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Typeface
 import android.os.Bundle
@@ -24,6 +25,8 @@ class DetailActivity : Activity() {
     private lateinit var infoBox: LinearLayout
     private lateinit var counter: TextView
     private lateinit var scroll: ScrollView
+    private lateinit var body: LinearLayout
+    private lateinit var hint: TextView
     private lateinit var gestures: GestureDetector
 
     private var index = 0
@@ -67,31 +70,23 @@ class DetailActivity : Activity() {
         root.addView(bar)
 
         // ----- Nội dung -----
-        scroll = ScrollView(this)
-        val content = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), dp(4), dp(12), dp(24))
-        }
+        body = LinearLayout(this)
+        root.addView(body, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         image = ImageView(this).apply {
             adjustViewBounds = true
             scaleType = ImageView.ScaleType.FIT_CENTER
             setBackgroundColor(Color.TRANSPARENT)
             setOnClickListener { openZoom() }
         }
-        content.addView(image, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-        ).apply { bottomMargin = dp(10) })
         infoBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        content.addView(infoBox)
-        content.addView(TextView(this).apply {
+        hint = TextView(this).apply {
             text = "Chạm vào ảnh để phóng to · Vuốt trái / phải để xem ảnh khác"
             textSize = 12f
             setTextColor(Ui.mute)
             gravity = Gravity.CENTER
             setPadding(0, dp(12), 0, 0)
-        })
-        scroll.addView(content)
-        root.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        }
+        applyLayout()
         setContentView(root)
 
         gestures = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
@@ -108,6 +103,41 @@ class DetailActivity : Activity() {
         })
 
         show()
+    }
+
+    /** Cầm dọc: ảnh trên, thông số dưới (cuộn chung). Cầm ngang: ảnh trái, thông số phải. */
+    private fun applyLayout() {
+        for (v in listOf<View>(image, infoBox, hint)) (v.parent as? ViewGroup)?.removeView(v)
+        body.removeAllViews()
+        val sc = ScrollView(this)
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+            body.orientation = LinearLayout.HORIZONTAL
+            image.adjustViewBounds = false
+            body.addView(image, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1.3f).apply {
+                leftMargin = dp(12); bottomMargin = dp(12)
+            })
+            col.setPadding(dp(12), dp(4), dp(12), dp(24))
+            col.addView(infoBox); col.addView(hint)
+            sc.addView(col)
+            body.addView(sc, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
+        } else {
+            body.orientation = LinearLayout.VERTICAL
+            image.adjustViewBounds = true
+            col.setPadding(dp(12), dp(4), dp(12), dp(24))
+            col.addView(image, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(10) })
+            col.addView(infoBox); col.addView(hint)
+            sc.addView(col)
+            body.addView(sc, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        }
+        scroll = sc
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        applyLayout()
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {

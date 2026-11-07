@@ -1,6 +1,7 @@
 package com.looknote.exif
 
 import android.app.Activity
+import android.content.res.Configuration
 import android.content.ContentValues
 import android.graphics.Bitmap
 import android.graphics.Color
@@ -32,6 +33,8 @@ class EditActivity : Activity() {
 
     private lateinit var uri: Uri
     private lateinit var zoom: ZoomView
+    private lateinit var body: LinearLayout
+    private lateinit var panelScroll: ScrollView
     private lateinit var summary: TextView
     private lateinit var faceInfo: TextView
     private lateinit var strengthLabel: TextView
@@ -96,13 +99,12 @@ class EditActivity : Activity() {
         root.addView(bar)
 
         // ----- Ảnh xem trước: chụm để phóng to -----
+        body = LinearLayout(this)
+        root.addView(body, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         zoom = ZoomView(this).apply { setBackgroundColor(Color.parseColor("#EDE8E0")) }
-        root.addView(zoom, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f).apply {
-            leftMargin = dp(8); rightMargin = dp(8)
-        })
 
         // ----- Bảng điều khiển (cuộn được) -----
-        val panelScroll = ScrollView(this)
+        panelScroll = ScrollView(this)
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(12), dp(6), dp(12), dp(12))
@@ -217,12 +219,37 @@ class EditActivity : Activity() {
             setTextColor(Ui.mute)
             setPadding(dp(2), dp(8), 0, 0)
         })
-        root.addView(panelScroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(300)))
+        applyLayout()
         setContentView(root)
 
         updateLabels()
         styleChips()
         loadBase()
+    }
+
+    /** Cầm dọc: ảnh trên, bảng điều khiển dưới. Cầm ngang: ảnh trái, bảng điều khiển phải. */
+    private fun applyLayout() {
+        body.removeAllViews()
+        if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+            body.orientation = LinearLayout.HORIZONTAL
+            body.addView(zoom, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply {
+                leftMargin = dp(8); bottomMargin = dp(8)
+            })
+            val wide = resources.configuration.screenWidthDp >= 900
+            body.addView(panelScroll, LinearLayout.LayoutParams(dp(if (wide) 420 else 340), ViewGroup.LayoutParams.MATCH_PARENT))
+        } else {
+            body.orientation = LinearLayout.VERTICAL
+            body.addView(zoom, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f).apply {
+                leftMargin = dp(8); rightMargin = dp(8)
+            })
+            val tall = resources.configuration.screenHeightDp >= 900
+            body.addView(panelScroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(if (tall) 380 else 300)))
+        }
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        applyLayout()
     }
 
     override fun onDestroy() {
