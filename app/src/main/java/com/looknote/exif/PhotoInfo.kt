@@ -199,6 +199,32 @@ object PhotoInfoBuilder {
         return PhotoInfo(name, sections, null, orientation)
     }
 
+    /**
+     * Dựng lại công thức màu đã dùng lúc chụp từ EXIF của máy Sony.
+     * Trả về null nếu không phải ảnh Sony hoặc không có Creative Look.
+     */
+    fun sourcePreset(bytes: ByteArray): Preset? {
+        val p = ExifParser(bytes)
+        val r = try { p.parse() } catch (e: Exception) { return null }
+        val s = r.sony
+        if (s.isEmpty()) return null
+        val raw = s[0xB020]?.let { p.string(it) } ?: return null
+        val look = when (raw) {
+            "Standard" -> "ST"; "Portrait" -> "PT"; "Neutral" -> "NT"; "Vivid" -> "VV"
+            "BW" -> "BW"; "Sepia" -> "SE"; else -> raw
+        }
+        fun v(tag: Int) = s[tag]?.let { p.firstLong(it).toInt() } ?: 0
+        var ab = 0.0; var gm = 0.0
+        val precise = s[0x2026]
+        if (precise != null && precise.count >= 2) {
+            val x = p.ints(precise); ab = x[0].toInt() / 1000.0; gm = x[1].toInt() / 1000.0
+        } else s[0x2014]?.takeIf { it.count >= 2 }?.let {
+            val x = p.ints(it); ab = x[0].toInt().toDouble(); gm = x[1].toInt().toDouble()
+        }
+        return Preset("gốc", "Lúc chụp", look, v(0x2004), v(0x2033), v(0x2032), v(0x2034), v(0x2005),
+            ab, gm, 0.0, "WB")
+    }
+
     /** "2026:11:06 15:30:00" → "06/11/2026 15:30:00" */
     fun dateText(raw: String?): String {
         if (raw.isNullOrBlank()) return NA

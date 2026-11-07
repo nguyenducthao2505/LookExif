@@ -53,6 +53,10 @@ class EditActivity : Activity() {
     private var blemish = false
     private var token = 0
     private var saving = false
+    private var srcPreset: Preset? = null   // công thức lúc chụp (đọc từ EXIF)
+    private var invert = false               // gỡ màu lúc chụp trước khi áp màu mới
+    private lateinit var invertBox: CheckBox
+    private lateinit var srcInfo: TextView
     private var deltaKey = ""
     private var delta: SkinRetouch.Delta? = null
     private val worker = Executors.newSingleThreadExecutor()
@@ -148,6 +152,18 @@ class EditActivity : Activity() {
 
         // --- Màu ---
         panel.addView(sectionTitle("Màu"))
+        invertBox = CheckBox(this).apply {
+            text = "Đổi công thức (gỡ màu lúc chụp)"
+            setTextColor(Ui.ink)
+            isEnabled = false
+            setOnCheckedChangeListener { _, on -> invert = on; render() }
+        }
+        panel.addView(invertBox)
+        srcInfo = TextView(this).apply {
+            textSize = 12f; setTextColor(Ui.mute); text = "Đang đọc thông số lúc chụp..."
+            setPadding(dp(2), 0, 0, dp(6))
+        }
+        panel.addView(srcInfo)
         val hs = HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false }
         val chipRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         val labels = listOf("Không") + Presets.all.map { "${it.slot} · ${it.name}" }
@@ -235,7 +251,7 @@ class EditActivity : Activity() {
         val e = if (ev > 0) "+" + PhotoInfoBuilder.fmt(ev, 1) else PhotoInfoBuilder.fmt(ev, 1)
         evLabel.text = "Độ sáng: $e EV"
         smoothLabel.text = "Mịn da: $smooth%"
-        summary.text = if (selected < 0) "Chưa áp màu. Chọn một công thức ở trên."
+        summary.text = if (selected < 0) "Chưa áp màu mới. Chọn một công thức ở trên."
         else Presets.all[selected].summary()
     }
 
@@ -257,13 +273,29 @@ class EditActivity : Activity() {
     }
 
     private val skinOn get() = smooth > 0 || blemish
-    private val anyEdit get() = skinOn || selected >= 0
+    private val invertOn get() = invert && srcPreset != null
+    private val anyEdit get() = skinOn || selected >= 0 || invertOn
 
     private fun loadBase() {
         summary.text = "Đang mở ảnh..."
         worker.execute {
             val head = try { Ui.readHead(this, uri, 512 * 1024) } catch (e: Exception) { ByteArray(0) }
             orientation = PhotoInfoBuilder.build("", head).orientation
+            val src = PhotoInfoBuilder.sourcePreset(head)
+            runOnUiThread {
+                when {
+                    src == null -> srcInfo.text = "Ảnh không có thông số Creative Look của Sony: màu mới sẽ áp chồng lên màu sẵn có."
+                    src.look == "BW" || src.look == "SE" ->
+                        srcInfo.text = "Ảnh chụp đen trắng/sepia: không gỡ lại được màu."
+                    else -> {
+                        srcPreset = src
+                        srcInfo.text = "Lúc chụp: " + src.summary() +
+                            ". Bật ô trên để gỡ màu này rồi mới áp công thức mới (vùng đã cháy sáng hoặc bị dìm đen không lấy lại được)."
+                        invertBox.isEnabled = true
+                        invertBox.isChecked = true
+                    }
+                }
+            }
             val b = try { Ui.decodeMax(this, uri, 1800, orientation) } catch (e: Throwable) { null }
             runOnUiThread {
                 if (b == null) {
@@ -273,6 +305,7 @@ class EditActivity : Activity() {
                     base = b
                     zoom.setImage(b)
                     updateLabels()
+                    if (anyEdit) render()
                 }
             }
             if (b != null) {
@@ -303,6 +336,7 @@ class EditActivity : Activity() {
         val b = base ?: return
         if (!anyEdit) { processed = null; zoom.swapBitmap(b); return }
         val my = ++token
+        val inv = if (invertOn) srcPreset else null
         val p = if (selected >= 0) Presets.all[selected] else null
         val st = strength / 100f
         val e = ev
@@ -313,6 +347,7 @@ class EditActivity : Activity() {
             b.getPixels(px, 0, w, 0, 0, w, h)
             val d = skinDelta(b, px.copyOf())
             if (d != null) SkinRetouch.apply(d, px, w, h, 0, h)
+            if (inv != null) LookInverter(inv).process(px)
             if (p != null) ColorEngine(p, e, st).process(px)
             val out = Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888)
             runOnUiThread {
@@ -332,6 +367,7 @@ class EditActivity : Activity() {
         val p = if (selected >= 0) Presets.all[selected] else null
         val st = strength / 100f
         val e = ev
+        val inv = if (invertOn) srcPreset else null
         worker.execute {
             val msg = try {
                 // độ lệch làm da tính trên ảnh xem trước, phóng to áp lên ảnh lớn
@@ -346,11 +382,13 @@ class EditActivity : Activity() {
                 val rows = 256
                 val buf = IntArray(w * rows)
                 val engine = p?.let { ColorEngine(it, e, st) }
+                val inverter = inv?.let { LookInverter(it) }
                 var y = 0
                 while (y < h) {
                     val hh = minOf(rows, h - y)
                     work.getPixels(buf, 0, w, 0, y, w, hh)
                     if (d != null) SkinRetouch.apply(d, buf, w, h, y, hh)
+                    inverter?.process(buf, 0, w * hh)
                     engine?.process(buf, 0, w * hh)
                     work.setPixels(buf, 0, w, 0, y, w, hh)
                     y += hh
@@ -361,7 +399,7 @@ class EditActivity : Activity() {
                 ExifParser.exifSegmentForEdit(head)?.let { jpg = ExifParser.insertExif(jpg, it) }
 
                 val baseName = Ui.displayName(this, uri).substringBeforeLast('.')
-                val tag = listOfNotNull(p?.slot, if (d != null) "da" else null).joinToString("-")
+                val tag = listOfNotNull(if (inv != null) "doi" else null, p?.slot, if (d != null) "da" else null).joinToString("-")
                 val outName = "${baseName}_LX-$tag.jpg"
                 val values = ContentValues().apply {
                     put(MediaStore.Images.Media.DISPLAY_NAME, outName)

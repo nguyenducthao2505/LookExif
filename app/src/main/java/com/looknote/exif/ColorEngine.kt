@@ -57,14 +57,14 @@ object Presets {
  */
 class ColorEngine(p: Preset, evOverride: Double = p.ev, private val strength: Float = 1f) {
 
-    private val lut = FloatArray(1024)
-    private val gainR: Float
-    private val gainG: Float
-    private val gainB: Float
-    private val satMul: Float
+    internal val lut = FloatArray(1024)
+    internal val gainR: Float
+    internal val gainG: Float
+    internal val gainB: Float
+    internal val satMul: Float
     // tông vùng tối / vùng sáng (cộng thêm vào R, G, B)
-    private val shR: Float; private val shG: Float; private val shB: Float
-    private val hiR: Float; private val hiG: Float; private val hiB: Float
+    internal val shR: Float; internal val shG: Float; internal val shB: Float
+    internal val hiR: Float; internal val hiG: Float; internal val hiB: Float
 
     init {
         // ----- đặc trưng của từng Look -----
@@ -149,6 +149,72 @@ class ColorEngine(p: Preset, evOverride: Double = p.ev, private val strength: Fl
                 g = g0 + (g - g0) * st
                 b = b0 + (b - b0) * st
             }
+            val ri = (max(0f, min(1f, r)) * 255f + 0.5f).toInt()
+            val gi = (max(0f, min(1f, g)) * 255f + 0.5f).toInt()
+            val bi = (max(0f, min(1f, b)) * 255f + 0.5f).toInt()
+            px[i] = (a shl 24) or (ri shl 16) or (gi shl 8) or bi
+        }
+    }
+}
+
+/**
+ * Gỡ ngược màu của công thức đã dùng lúc chụp (đọc từ EXIF), đưa ảnh về gần trung tính
+ * trước khi áp công thức mới. Chỉ gần đúng: vùng đã cháy sáng hoặc bị dìm đen không lấy lại được.
+ */
+class LookInverter(src: Preset) {
+    private val f = ColorEngine(src, 0.0, 1f)
+    private val inv = FloatArray(1024)
+    private val satInv = 1f / max(0.35f, f.satMul)
+
+    init {
+        // đường cong thuận phải đơn điệu mới đảo được
+        val mono = FloatArray(1024)
+        var m = 0f
+        for (i in 0 until 1024) { m = max(m, f.lut[i]); mono[i] = m }
+        var j = 0
+        for (k in 0 until 1024) {
+            val y = k / 1023f
+            while (j < 1023 && mono[j] < y) j++
+            inv[k] = when {
+                mono[j] < y -> 1f
+                j == 0 -> 0f
+                else -> {
+                    val y0 = mono[j - 1]; val y1 = mono[j]
+                    val t = if (y1 > y0) ((y - y0) / (y1 - y0)).coerceIn(0f, 1f) else 0.5f
+                    ((j - 1) + t) / 1023f
+                }
+            }
+        }
+    }
+
+    private fun invCurve(v: Float): Float = inv[(v.coerceIn(0f, 1f) * 1023f).toInt()]
+
+    fun process(px: IntArray, from: Int = 0, to: Int = px.size) {
+        for (i in from until to) {
+            val c = px[i]
+            val a = c ushr 24
+            var r = ((c shr 16) and 0xFF) / 255f
+            var g = ((c shr 8) and 0xFF) / 255f
+            var b = (c and 0xFF) / 255f
+
+            // bỏ tông màu riêng của Look
+            var l = 0.299f * r + 0.587f * g + 0.114f * b
+            val ws = (1 - l) * (1 - l); val wh = l * l
+            r -= f.shR * ws + f.hiR * wh
+            g -= f.shG * ws + f.hiG * wh
+            b -= f.shB * ws + f.hiB * wh
+
+            // trả lại độ bão hòa
+            l = 0.299f * r + 0.587f * g + 0.114f * b
+            r = l + (r - l) * satInv
+            g = l + (g - l) * satInv
+            b = l + (b - l) * satInv
+
+            // đảo đường cong tone, rồi đảo cân bằng trắng
+            r = invCurve(r) / f.gainR
+            g = invCurve(g) / f.gainG
+            b = invCurve(b) / f.gainB
+
             val ri = (max(0f, min(1f, r)) * 255f + 0.5f).toInt()
             val gi = (max(0f, min(1f, g)) * 255f + 0.5f).toInt()
             val bi = (max(0f, min(1f, b)) * 255f + 0.5f).toInt()
