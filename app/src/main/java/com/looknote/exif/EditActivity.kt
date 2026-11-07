@@ -42,6 +42,9 @@ class EditActivity : Activity() {
     private lateinit var compareBtn: Button
     private lateinit var clipBtn: Button
     private val chips = ArrayList<Button>()
+    private val skinChips = ArrayList<Button>()
+    private lateinit var smoothBar: SeekBar
+    private lateinit var skinShot: TextView
 
     private var base: Bitmap? = null
     private var processed: Bitmap? = null
@@ -135,7 +138,21 @@ class EditActivity : Activity() {
         smoothLabel = label().apply { setPadding(dp(16), 0, 0, 0) }
         skinRow.addView(smoothLabel)
         panel.addView(skinRow)
-        panel.addView(slider(100, 0, onChange = { smooth = it; updateLabels() }))
+        smoothBar = slider(SoftSkin.MAX, 0, onChange = { smooth = it; updateLabels(); styleSkinChips() })
+        panel.addView(smoothBar)
+        // chọn nhanh theo các mức Soft Skin Effect của máy Sony
+        val skinChipRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        SoftSkin.names.forEachIndexed { i, n ->
+            val b = Ui.button(this, if (i == 0) "Tắt" else n, false) {
+                smooth = SoftSkin.appValue[i]; smoothBar.progress = smooth
+                updateLabels(); styleSkinChips(); render()
+            }
+            skinChips += b
+            skinChipRow.addView(b, LinearLayout.LayoutParams(0, dp(36), 1f).apply { if (i < 3) rightMargin = dp(6) })
+        }
+        panel.addView(skinChipRow)
+        skinShot = small("")
+        panel.addView(skinShot)
 
         // --- Màu ---
         panel.addView(sectionTitle("Màu"))
@@ -171,6 +188,7 @@ class EditActivity : Activity() {
         setContentView(root)
         updateLabels()
         styleChips()
+        styleSkinChips()
         loadBase()
     }
 
@@ -231,7 +249,7 @@ class EditActivity : Activity() {
         strengthLabel.text = "Độ mạnh màu: $strength%"
         val e = if (ev > 0) "+" + PhotoInfoBuilder.fmt(ev, 1) else PhotoInfoBuilder.fmt(ev, 1)
         evLabel.text = "Độ sáng: $e EV"
-        smoothLabel.text = "Mịn da: $smooth%"
+        smoothLabel.text = "Mịn da: $smooth" + (if (smooth > 0) " (≈ máy: ${SoftSkin.names[SoftSkin.levelOf(smooth)]})" else "")
         fringeLabel.text = "Xóa viền tím / xanh lá: $defringe%"
         summary.text = if (selected < 0) "Chưa áp màu mới. Chọn một công thức ở trên."
         else Presets.all[selected].summary()
@@ -240,6 +258,14 @@ class EditActivity : Activity() {
     private fun styleChips() {
         chips.forEachIndexed { i, b ->
             val on = (i - 1) == selected
+            b.background = Ui.rounded(this, if (on) Ui.accent else Ui.field, 12, if (on) 0 else Ui.line)
+            b.setTextColor(if (on) Color.WHITE else Ui.ink)
+        }
+    }
+
+    private fun styleSkinChips() {
+        skinChips.forEachIndexed { i, b ->
+            val on = smooth == SoftSkin.appValue[i]
             b.background = Ui.rounded(this, if (on) Ui.accent else Ui.field, 12, if (on) 0 else Ui.line)
             b.setTextColor(if (on) Color.WHITE else Ui.ink)
         }
@@ -282,8 +308,14 @@ class EditActivity : Activity() {
             val head = try { Ui.readHead(this, uri, 512 * 1024) } catch (e: Exception) { ByteArray(0) }
             orientation = PhotoInfoBuilder.build("", head).orientation
             val src = PhotoInfoBuilder.sourcePreset(head)
+            val shotSkin = ExifParser.softSkin(head)
             val b = try { Ui.decodeMax(this, uri, 1800, orientation) } catch (e: Throwable) { null }
             runOnUiThread {
+                skinShot.text = when (shotSkin) {
+                    null -> "Mức Off / Low / Mid / High làm mịn gần giống Soft Skin Effect của máy."
+                    0 -> "Lúc chụp: Soft Skin Effect Off. Chọn mức để làm mịn giống máy."
+                    else -> "Lúc chụp: Soft Skin Effect ${SoftSkin.names[shotSkin]} (máy đã làm mịn sẵn). Chọn thêm sẽ mịn chồng lên."
+                }
                 when {
                     src == null -> srcInfo.text = "Ảnh không có thông số Creative Look của Sony: màu mới sẽ áp chồng lên màu sẵn có."
                     src.look == "BW" || src.look == "SE" -> srcInfo.text = "Ảnh chụp đen trắng/sepia: không gỡ lại được màu."

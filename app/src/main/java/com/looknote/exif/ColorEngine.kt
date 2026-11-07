@@ -56,7 +56,18 @@ object Presets {
         floatArrayOf(-0.045f, 0.010f, 0.045f), floatArrayOf(0.030f, 0.008f, -0.020f)),
     Preset("M3", "Kodak Gold 200", "ST", 0, -1, -1, 2, 1, 3.0, 1.0, 0.3, "Daylight",
         floatArrayOf(0.010f, 0.004f, -0.015f), floatArrayOf(0.025f, 0.018f, -0.030f)),
-    Preset("M4", "Cạnh cửa sổ", "FL", -1, -2, -9, 1, -2, -7.0, 2.0, 0.0, "AWB")
+    Preset("M4", "Cạnh cửa sổ", "FL", -1, -2, -9, 1, -2, -7.0, 2.0, 0.0, "AWB"),
+    // ---- bổ sung từ ảnh mẫu, đã lọc bỏ các công thức cho màu gần trùng ----
+    // (B1, B2, B3 theo công thức kèm ảnh; B4–B6 ảnh không kèm công thức, thông số ước lượng)
+    Preset("B1", "NT ga tàu", "NT", -2, -2, 2, 1, 5, 0.0, 0.0, 0.0, "5600K"),
+    Preset("B2", "Kamakura FL", "FL", -2, -6, 0, 0, 1, 0.0, 0.0, 0.0, "AWB"),
+    Preset("B3", "NT trắng hồng", "NT", -1, 0, -1, 0, -2, 0.0, 0.0, 0.0, "AWB"),
+    Preset("B4", "Lau sậy nắng chiều", "FL", -2, -3, 1, 3, -1, 3.0, 1.0, 0.3, "Daylight",
+        floatArrayOf(0.012f, 0.004f, -0.018f), floatArrayOf(0.028f, 0.014f, -0.030f)),
+    Preset("B5", "Phố Nhật film", "FL", -2, -3, 1, 2, -2, 0.0, -0.5, 0.0, "AWB",
+        floatArrayOf(-0.010f, 0.012f, 0.010f), floatArrayOf(0.010f, 0.006f, -0.008f)),
+    Preset("B6", "Hồng Kông 90s", "FL", 1, -2, -2, 2, -1, 2.0, -1.0, 0.0, "AWB",
+        floatArrayOf(-0.020f, 0.025f, 0.005f), floatArrayOf(0.030f, 0.012f, -0.025f))
 )
 
     /** Danh sách công thức đang dùng (người dùng thêm/sửa được). */

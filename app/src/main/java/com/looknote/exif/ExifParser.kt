@@ -7,6 +7,14 @@ package com.looknote.exif
  */
 class ExifParser(private val b: ByteArray) {
 
+    /** Giá trị ghi lại vào EXIF của ảnh đã chỉnh. null = giữ nguyên. */
+    class Rewrite(
+        val preset: Preset? = null,     // thông số màu mới (Creative Look, C/H/S/F/Sat, WB Shift)
+        val softSkin: Int? = null,      // 0 Off, 1 Low, 2 Mid, 3 High
+        val width: Int = 0, val height: Int = 0,
+        val software: String? = null
+    )
+
 
     companion object {
         /**
@@ -54,6 +62,79 @@ class ExifParser(private val b: ByteArray) {
             }
             val next = ifd0 + 2 + n * 12
             if (next + 4 <= seg.size) for (q in 0 until 4) seg[next + q] = 0
+        }
+
+        /** Mã Look của app → chuỗi Sony ghi trong MakerNote. */
+        fun sonyLookName(code: String): String = when (code) {
+            "ST" -> "Standard"; "PT" -> "Portrait"; "NT" -> "Neutral"; "VV" -> "Vivid"; "SE" -> "Sepia"
+            else -> code
+        }
+
+        /**
+         * Ghi đè giá trị ngay trong đoạn APP1 Exif (không đổi kích thước đoạn):
+         * Creative Look và thông số màu trong MakerNote Sony, Soft Skin Effect, kích thước ảnh, Software.
+         * Trường nào không có sẵn hoặc không đủ chỗ thì bỏ qua.
+         * @return danh sách trường đã ghi được
+         */
+        fun rewrite(seg: ByteArray, r: Rewrite): List<String> {
+            val buf = ByteArray(seg.size + 2)
+            buf[0] = 0xFF.toByte(); buf[1] = 0xD8.toByte()
+            System.arraycopy(seg, 0, buf, 2, seg.size)
+            val px = ExifParser(buf)
+            val res = try { px.parse() } catch (e: Exception) { return emptyList() }
+            val done = ArrayList<String>()
+
+            fun putInt(e: Entry?, idx: Int, v: Long): Boolean {
+                if (e == null || idx >= e.count) return false
+                val sz = when (e.type) { 1, 6, 7 -> 1; 3, 8 -> 2; 4, 9 -> 4; else -> return false }
+                val q = e.pos + idx * sz
+                if (q + sz > buf.size) return false
+                for (k in 0 until sz) {
+                    val sh = if (e.le) k * 8 else (sz - 1 - k) * 8
+                    buf[q + k] = ((v shr sh) and 0xFF).toByte()
+                }
+                return true
+            }
+            fun putStr(e: Entry?, text: String): Boolean {
+                if (e == null || e.type != 2) return false
+                val bytes = text.toByteArray(Charsets.US_ASCII)
+                if (bytes.size + 1 > e.count || e.pos + e.count > buf.size) return false
+                for (k in 0 until e.count) buf[e.pos + k] = if (k < bytes.size) bytes[k] else 0
+                return true
+            }
+
+            val s = res.sony
+            r.preset?.let { p ->
+                // tên đầy đủ (Portrait…) không vừa chỗ thì ghi mã ngắn (PT…), app vẫn đọc được
+                if (putStr(s[0xB020], sonyLookName(p.look)) || putStr(s[0xB020], p.look)) done += "Creative Look"
+                if (putInt(s[0x2004], 0, p.contrast.toLong())) done += "Contrast"
+                if (putInt(s[0x2033], 0, p.highlights.toLong())) done += "Highlights"
+                if (putInt(s[0x2032], 0, p.shadows.toLong())) done += "Shadows"
+                if (putInt(s[0x2034], 0, p.fade.toLong())) done += "Fade"
+                if (putInt(s[0x2005], 0, p.saturation.toLong())) done += "Saturation"
+                var wb = false
+                s[0x2026]?.let { e -> if (e.count >= 2) {
+                    wb = putInt(e, 0, Math.round(p.ab * 1000)) and putInt(e, 1, Math.round(p.gm * 1000)) } }
+                s[0x2014]?.let { e -> if (e.count >= 2) {
+                    wb = (putInt(e, 0, Math.round(p.ab)) and putInt(e, 1, Math.round(p.gm))) || wb } }
+                if (wb) done += "WB Shift"
+            }
+            r.softSkin?.let { if (putInt(s[0x200F], 0, it.toLong())) done += "Soft Skin Effect" }
+            if (r.width > 0 && r.height > 0) {
+                if (putInt(res.exif[0xA002], 0, r.width.toLong()) and putInt(res.exif[0xA003], 0, r.height.toLong()))
+                    done += "Kích thước"
+            }
+            r.software?.let { if (putStr(res.ifd0[0x0131], it)) done += "Software" }
+            System.arraycopy(buf, 2, seg, 0, seg.size)
+            return done
+        }
+
+        /** Đọc Soft Skin Effect của máy Sony (0..3), null nếu không có. */
+        fun softSkin(bytes: ByteArray): Int? {
+            val p = ExifParser(bytes)
+            val r = try { p.parse() } catch (e: Exception) { return null }
+            val v = r.sony[0x200F]?.let { p.firstLong(it) } ?: return null
+            return if (v in 0..3) v.toInt() else null
         }
 
         /** Chèn đoạn Exif vào JPEG mới (bỏ đoạn JFIF APP0 nếu có). */

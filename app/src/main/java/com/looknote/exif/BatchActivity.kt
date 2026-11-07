@@ -65,7 +65,7 @@ class BatchActivity : Activity() {
             text = "Xóa mụn"; setTextColor(Ui.ink)
             setOnCheckedChangeListener { _, on -> blemish = on }
         })
-        col.addView(slider(0) { smooth = it; updateLabels() })
+        col.addView(slider(0, SoftSkin.MAX) { smooth = it; updateLabels() })
 
         col.addView(title("Màu"))
         col.addView(CheckBox(this).apply {
@@ -102,8 +102,8 @@ class BatchActivity : Activity() {
         setTypeface(typeface, Typeface.BOLD); setTextColor(Ui.accent); setPadding(0, dp(16), 0, dp(2))
     }
 
-    private fun slider(start: Int, f: (Int) -> Unit) = SeekBar(this).apply {
-        max = 100; progress = start
+    private fun slider(start: Int, mx: Int = 100, f: (Int) -> Unit) = SeekBar(this).apply {
+        max = mx; progress = start
         setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) = f(p)
             override fun onStartTrackingTouch(s: SeekBar?) {}
@@ -121,7 +121,7 @@ class BatchActivity : Activity() {
 
     private fun updateLabels() {
         val color = if (selected >= 0) Presets.all[selected].let { "${it.slot} ${it.name}, độ mạnh $strength%" } else "không đổi màu"
-        labels.text = "Xóa viền tím $defringe% · Mịn da $smooth% · Màu: $color.\n" +
+        labels.text = "Xóa viền tím $defringe% · Mịn da $smooth${if (smooth > 0) " (≈ ${SoftSkin.names[SoftSkin.levelOf(smooth)]})" else ""} · Màu: $color.\n" +
             "Mỗi ảnh lưu thành file mới trong Pictures/LookExif, ảnh gốc giữ nguyên."
     }
 

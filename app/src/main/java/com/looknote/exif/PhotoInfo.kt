@@ -86,6 +86,7 @@ object PhotoInfoBuilder {
         if (fileSize > 0) picture += "Dung lượng" to sizeText(fileSize)
         val ext = name.substringAfterLast('.', "").uppercase()
         if (ext.isNotBlank() && ext.length <= 4) picture += "Định dạng" to ext
+        str(r.ifd0, 0x0131)?.takeIf { it.startsWith("LookExif") }?.let { picture += "Đã chỉnh bằng" to it }
 
         // ----- Phơi sáng -----
         val shutter = r.exif[0x829A]?.let { p.rational(it) }?.let { shutterText(it) } ?: NA
@@ -140,7 +141,8 @@ object PhotoInfoBuilder {
             "Saturation" to signed(s, 0x2005),
             "Sharpness" to signed(s, 0x2006),
             "Sharpness Range" to (num(s, 0x2035)?.toString() ?: NA),
-            "Clarity" to signed(s, 0x2036)
+            "Clarity" to signed(s, 0x2036),
+            "Soft Skin Effect" to (num(s, 0x200F)?.let { v -> if (v in 0..3) SoftSkin.names[v.toInt()] else null } ?: NA)
         )
 
         // ----- Cân bằng trắng -----
@@ -270,10 +272,10 @@ object PhotoInfoBuilder {
     }
 
     fun lookName(raw: String): String = when (raw) {
-        "Standard" -> "ST (Standard)"
-        "Portrait" -> "PT (Portrait)"
-        "Neutral" -> "NT (Neutral)"
-        "Vivid" -> "VV (Vivid)"
+        "Standard", "ST" -> "ST (Standard)"
+        "Portrait", "PT" -> "PT (Portrait)"
+        "Neutral", "NT" -> "NT (Neutral)"
+        "Vivid", "VV" -> "VV (Vivid)"
         "VV2" -> "VV2"
         "FL" -> "FL"
         "IN" -> "IN"

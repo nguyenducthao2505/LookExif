@@ -14,7 +14,19 @@ object PresetStore {
             val arr = org.json.JSONArray(f.readText())
             val list = ArrayList<Preset>()
             for (i in 0 until arr.length()) list += fromJson(arr.getJSONObject(i))
-            if (list.isNotEmpty()) Presets.all = list
+            if (list.isNotEmpty()) {
+                // công thức mặc định mới ra ở bản sau: thêm vào cuối (chỉ một lần, xóa rồi thì không thêm lại)
+                val seenFile = java.io.File(c.filesDir, "presets_seen.txt")
+                val seen = if (seenFile.exists()) seenFile.readLines().toMutableSet()
+                    else Presets.defaults.take(7).map { it.slot + "|" + it.name }.toMutableSet()
+                for (d in Presets.defaults) {
+                    val key = d.slot + "|" + d.name
+                    if (key !in seen && list.none { it.name == d.name }) list += d
+                    seen += key
+                }
+                seenFile.writeText(seen.joinToString("\n"))
+                Presets.all = list
+            }
         } catch (e: Exception) { }
     }
 

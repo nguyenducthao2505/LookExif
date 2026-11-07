@@ -27,7 +27,7 @@ object SkinRetouch {
     class Delta(val w: Int, val h: Int, val d: ShortArray)
 
     /**
-     * @param smooth mức làm mịn 0..1
+     * @param smooth mức làm mịn 0..2 (trên 1 là mạnh như Soft Skin High của máy)
      * @param blemish bật xóa mụn
      */
     fun compute(px: IntArray, w: Int, h: Int, faces: List<FaceRegion>, smooth: Float, blemish: Boolean): Delta {
@@ -102,7 +102,10 @@ object SkinRetouch {
         if (smooth > 0f) {
             val rFine = max(1, (fw * 0.003f).roundToInt())
             val rBase = max(2, (fw * 0.018f).roundToInt())
-            val amount = smooth * (if (hasFace) 0.9f else 0.5f)
+            val amount = min(1f, smooth) * (if (hasFace) 0.9f else 0.5f)
+            // trên mức 1: giữ ít vân da hơn và phủ đều hơn
+            val fineKeep = if (smooth <= 1f) 0.55f else (0.55f - (smooth - 1f) * 0.45f).coerceAtLeast(0.08f)
+            val extra = if (smooth <= 1f) 1f else 1f + (smooth - 1f) * 0.1f
             val planes = arrayOf(r1, g1, b1)
             for (p in planes) {
                 val base = normBlur(p, mClean, w, h, rBase)
@@ -111,8 +114,8 @@ object SkinRetouch {
                     val m = mSoft[i]
                     if (m <= 0.001f) continue
                     val fine = p[i] - fineBlur[i]
-                    val sm = base[i] + fine * 0.55f
-                    p[i] += (sm - p[i]) * m * amount
+                    val sm = base[i] + fine * fineKeep
+                    p[i] += (sm - p[i]) * min(1f, m * amount * extra)
                 }
             }
             r1 = planes[0]; g1 = planes[1]; b1 = planes[2]

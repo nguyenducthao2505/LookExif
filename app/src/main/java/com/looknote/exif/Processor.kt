@@ -16,6 +16,23 @@ import android.os.Environment
 import android.provider.MediaStore
 import java.io.ByteArrayOutputStream
 
+/**
+ * Các mức Soft Skin Effect của máy, quy ra mức "Mịn da" của app (0..150).
+ * Đo trên bộ 4 ảnh A7C II (Off / Low / Mid / High) cùng khuôn mặt: so độ còn lại của vân da.
+ */
+object SoftSkin {
+    val names = listOf("Off", "Low", "Mid", "High")
+    val appValue = intArrayOf(0, 50, 75, 120)
+    const val MAX = 150
+    /** Mức máy gần nhất với giá trị mịn da của app. */
+    fun levelOf(smooth: Int): Int = when {
+        smooth <= 0 -> 0
+        smooth < 63 -> 1
+        smooth < 98 -> 2
+        else -> 3
+    }
+}
+
 /** Cài đặt của app. */
 object AppSettings {
     private fun sp(c: Context) = c.getSharedPreferences("settings", Context.MODE_PRIVATE)
@@ -109,7 +126,18 @@ object Processor {
         work.compress(Bitmap.CompressFormat.JPEG, AppSettings.quality(c), bos)
         work.recycle()
         var jpg = bos.toByteArray()
-        ExifParser.exifSegmentForEdit(head)?.let { jpg = ExifParser.insertExif(jpg, it) }
+        ExifParser.exifSegmentForEdit(head)?.let { seg ->
+            // ghi lại thông số mới để app (và phần mềm đọc EXIF Sony) thấy đúng màu, độ mịn da, kích thước
+            val newLook = when {
+                o.preset != null && o.strength >= 0.5f -> o.preset
+                src != null -> Preset("", "", "ST", 0, 0, 0, 0, 0, 0.0, 0.0, 0.0, "")
+                else -> null
+            }
+            val oldSkin = ExifParser.softSkin(head) ?: 0
+            val skin = if (delta != null && o.smooth > 0) maxOf(oldSkin, SoftSkin.levelOf(o.smooth)) else null
+            ExifParser.rewrite(seg, ExifParser.Rewrite(newLook, skin, w, h, "LookExif " + appVersion(c)))
+            jpg = ExifParser.insertExif(jpg, seg)
+        }
 
         val baseName = Ui.displayName(c, uri).substringBeforeLast('.')
         val tag = listOfNotNull(if (src != null) "doi" else null, o.preset?.slot?.ifBlank { null },
@@ -117,6 +145,9 @@ object Processor {
         val outName = "${baseName}_LX-$tag.jpg"
         return Saved(saveJpeg(c, jpg, outName, "LookExif"), outName)
     }
+
+    private fun appVersion(c: Context): String =
+        try { c.packageManager.getPackageInfo(c.packageName, 0).versionName ?: "" } catch (e: Exception) { "" }
 
     /** Ghi JPEG vào Pictures/[dir] qua MediaStore. */
     fun saveJpeg(c: Context, jpg: ByteArray, name: String, dir: String): Uri {

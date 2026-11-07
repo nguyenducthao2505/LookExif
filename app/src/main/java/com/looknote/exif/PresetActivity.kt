@@ -111,7 +111,7 @@ class PresetActivity : Activity() {
     }
 
     private fun resetDefaults() {
-        dialog().setTitle("Khôi phục 7 công thức mặc định?")
+        dialog().setTitle("Khôi phục ${Presets.defaults.size} công thức mặc định?")
             .setMessage("Các công thức tự thêm, chỉnh sửa và hiệu chỉnh sẽ bị xóa.")
             .setPositiveButton("Khôi phục") { _, _ -> PresetStore.save(this, Presets.defaults); render() }
             .setNegativeButton("Hủy", null).show()
