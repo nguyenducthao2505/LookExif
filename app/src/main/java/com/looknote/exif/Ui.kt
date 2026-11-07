@@ -157,6 +157,7 @@ object Ui {
         while (opts.outWidth / (sample * 2) >= maxW) sample *= 2
         val o2 = BitmapFactory.Options().apply { inSampleSize = sample }
         val bmp = c.contentResolver.openInputStream(u)?.use { BitmapFactory.decodeStream(it, null, o2) } ?: return null
+        bmp.density = Bitmap.DENSITY_NONE
         val deg = when (orientation) { 3 -> 180f; 6 -> 90f; 8 -> 270f; else -> 0f }
         if (deg == 0f) return bmp
         val m = Matrix().apply { postRotate(deg) }
@@ -168,10 +169,18 @@ object Ui {
         val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         c.contentResolver.openInputStream(u)?.use { BitmapFactory.decodeStream(it, null, opts) }
         if (opts.outWidth <= 0) return null
+        // inSampleSize chỉ chia theo lũy thừa 2 (4608 → 2304), nên lấy mức chia lớn nhất mà vẫn ≥ maxW,
+        // rồi để bộ giải mã thu nhỏ chính xác về maxW (không tốn bộ nhớ ảnh trung gian)
+        val long = maxOf(opts.outWidth, opts.outHeight)
         var sample = 1
-        while (maxOf(opts.outWidth, opts.outHeight) / sample > maxW) sample *= 2
-        val o2 = BitmapFactory.Options().apply { inSampleSize = sample; inMutable = true }
+        while (long / (sample * 2) >= maxW) sample *= 2
+        val sampled = long / sample
+        val o2 = BitmapFactory.Options().apply {
+            inSampleSize = sample; inMutable = true
+            if (sampled > maxW) { inScaled = true; inDensity = sampled; inTargetDensity = maxW }
+        }
         val bmp = c.contentResolver.openInputStream(u)?.use { BitmapFactory.decodeStream(it, null, o2) } ?: return null
+        bmp.density = Bitmap.DENSITY_NONE
         val deg = when (orientation) { 3 -> 180f; 6 -> 90f; 8 -> 270f; else -> 0f }
         if (deg == 0f) return bmp
         val m = Matrix().apply { postRotate(deg) }
