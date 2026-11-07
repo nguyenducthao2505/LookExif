@@ -46,6 +46,17 @@ class ZoomView(c: Context) : View(c) {
     private val exec = Executors.newSingleThreadExecutor()
     private var decoder: BitmapRegionDecoder? = null
 
+    /** Trong khung cuộn: chiều cao theo tỉ lệ ảnh (tối đa 1,6 lần bề rộng). */
+    var wrapAspect = false
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        if (wrapAspect && fullW > 0f) {
+            val w = MeasureSpec.getSize(widthMeasureSpec)
+            val h = (w * fullH / fullW).toInt().coerceAtMost((w * 1.6f).toInt())
+            setMeasuredDimension(w, h)
+        } else super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+    }
+
     /** Gọi khi người dùng chạm (dùng cho so sánh ảnh gốc); trả về true nếu đang giữ. */
     var onHoldChange: ((Boolean) -> Unit)? = null
 
@@ -81,6 +92,7 @@ class ZoomView(c: Context) : View(c) {
             tile = null
         }
         if (!keepView || changedSize) fit()
+        if (changedSize && wrapAspect) requestLayout()
         invalidate()
         scheduleTile()
     }
@@ -128,7 +140,11 @@ class ZoomView(c: Context) : View(c) {
     override fun onTouchEvent(e: MotionEvent): Boolean {
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> onHoldChange?.invoke(true)
-            MotionEvent.ACTION_POINTER_DOWN -> onHoldChange?.invoke(false)
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                onHoldChange?.invoke(false)
+                // hai ngón: không để khung cuộn cướp thao tác phóng to
+                parent?.requestDisallowInterceptTouchEvent(true)
+            }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> onHoldChange?.invoke(false)
         }
         scaleDetector.onTouchEvent(e)

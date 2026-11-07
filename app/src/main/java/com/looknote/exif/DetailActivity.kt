@@ -21,7 +21,8 @@ class DetailActivity : Activity() {
 
     companion object { const val EXTRA_INDEX = "index" }
 
-    private lateinit var image: ImageView
+    private lateinit var image: ZoomView
+    private var multiTouch = false
     private lateinit var infoBox: LinearLayout
     private lateinit var counter: TextView
     private lateinit var scroll: ScrollView
@@ -72,15 +73,14 @@ class DetailActivity : Activity() {
         // ----- Nội dung -----
         body = LinearLayout(this)
         root.addView(body, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-        image = ImageView(this).apply {
-            adjustViewBounds = true
-            scaleType = ImageView.ScaleType.FIT_CENTER
+        // chạm đúp hoặc hai ngón để phóng to ngay tại chỗ; vuốt ngang để sang ảnh khác
+        image = ZoomView(this).apply {
+            wrapAspect = true
             setBackgroundColor(Color.TRANSPARENT)
-            setOnClickListener { openZoom() }
         }
         infoBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         hint = TextView(this).apply {
-            text = "Chạm vào ảnh để phóng to · Vuốt trái / phải để xem ảnh khác"
+            text = "Chạm đúp hoặc dùng hai ngón để phóng to · Vuốt trái / phải để xem ảnh khác"
             textSize = 12f
             setTextColor(Ui.mute)
             gravity = Gravity.CENTER
@@ -113,7 +113,7 @@ class DetailActivity : Activity() {
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
             body.orientation = LinearLayout.HORIZONTAL
-            image.adjustViewBounds = false
+            image.wrapAspect = false
             body.addView(image, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1.3f).apply {
                 leftMargin = dp(12); bottomMargin = dp(12)
             })
@@ -123,7 +123,7 @@ class DetailActivity : Activity() {
             body.addView(sc, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
         } else {
             body.orientation = LinearLayout.VERTICAL
-            image.adjustViewBounds = true
+            image.wrapAspect = true
             col.setPadding(dp(12), dp(4), dp(12), dp(24))
             col.addView(image, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
@@ -141,7 +141,10 @@ class DetailActivity : Activity() {
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
-        if (::gestures.isInitialized) gestures.onTouchEvent(ev)
+        // chỉ chuyển ảnh khi vuốt một ngón và ảnh không đang phóng to
+        if (ev.actionMasked == MotionEvent.ACTION_DOWN) multiTouch = false
+        if (ev.pointerCount > 1) multiTouch = true
+        if (::gestures.isInitialized && !multiTouch && !image.isZoomed) gestures.onTouchEvent(ev)
         return super.dispatchTouchEvent(ev)
     }
 
@@ -174,7 +177,7 @@ class DetailActivity : Activity() {
         val uri = list[index]
         val token = ++loadToken
         counter.text = "${index + 1} / ${list.size}"
-        image.setImageBitmap(null)
+        image.setImage(null)
         infoBox.removeAllViews()
         infoBox.addView(TextView(this).apply {
             text = "Đang đọc thông số..."
@@ -185,10 +188,12 @@ class DetailActivity : Activity() {
 
         Thread {
             val name = Ui.displayName(this, uri)
+            var pw = 0; var ph = 0
             val info = try {
                 val head = Ui.readHead(this, uri, 8 * 1024 * 1024)
                 val orient = PhotoInfoBuilder.build(name, head).orientation
-                val (pw, ph) = Ui.pixelSize(this, uri, orient)
+                val sz = Ui.pixelSize(this, uri, orient)
+                pw = sz.first; ph = sz.second
                 PhotoInfoBuilder.build(name, head, pw, ph, Ui.fileSize(this, uri))
             } catch (e: Exception) {
                 PhotoInfo(name, emptyList(), "Lỗi đọc file: ${e.message}", 1)
@@ -198,10 +203,14 @@ class DetailActivity : Activity() {
                 infoBox.removeAllViews()
                 infoBox.addView(Ui.infoCard(this, info))
             }
-            val bmp = try { Ui.decode(this, uri, 1600, info.orientation) } catch (e: Throwable) { null }
+            val bmp = try { Ui.decodeMax(this, uri, 1600, info.orientation) } catch (e: Throwable) { null }
             runOnUiThread {
                 if (token != loadToken) return@runOnUiThread
-                image.setImageBitmap(bmp)
+                if (bmp != null) {
+                    val fw = if (pw > 0) pw else bmp.width
+                    val fh = if (ph > 0) ph else bmp.height
+                    image.setImage(bmp, fw, fh, uri, info.orientation)
+                }
             }
         }.start()
     }
