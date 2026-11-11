@@ -43,6 +43,8 @@ class EditActivity : Activity() {
     private lateinit var clipBtn: Button
     private val chips = ArrayList<Button>()
     private val skinChips = ArrayList<Button>()
+    private lateinit var invLabel: TextView
+    private var invAmount = 100
     private lateinit var smoothBar: SeekBar
     private lateinit var skinShot: TextView
 
@@ -161,6 +163,9 @@ class EditActivity : Activity() {
             setOnCheckedChangeListener { _, on -> invert = on; render() }
         }
         panel.addView(invertBox)
+        invLabel = label().apply { text = "Mức gỡ màu cũ: 100%" }
+        panel.addView(invLabel)
+        panel.addView(slider(150, 100, onChange = { invAmount = it; invLabel.text = "Mức gỡ màu cũ: $it%" }))
         srcInfo = small("Đang đọc thông số lúc chụp...")
         panel.addView(srcInfo)
         val hs = HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false }
@@ -361,7 +366,7 @@ class EditActivity : Activity() {
 
     private fun options() = EditOptions(
         preset = if (selected >= 0) Presets.all[selected] else null,
-        strength = strength / 100f, ev = ev, invert = invertOn,
+        strength = strength / 100f, ev = ev, invert = invertOn, invertStrength = invAmount / 100f,
         smooth = smooth, blemish = blemish, defringe = defringe
     )
 
@@ -381,7 +386,7 @@ class EditActivity : Activity() {
             if (o.defringe > 0) Defringe.process(px, w, 0, h, 0, Defringe.radiusFor(w), o.defringe / 100f, true)
             val d = skinDelta(b, px.copyOf())
             if (d != null) SkinRetouch.apply(d, px, w, h, 0, h)
-            if (inv != null) LookInverter(inv).process(px)
+            if (inv != null) LookInverter(inv, o.invertStrength).process(px)
             o.preset?.let { ColorEngine(it, o.ev, o.strength).process(px) }
             val out = Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888)
             runOnUiThread {

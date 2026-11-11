@@ -13,7 +13,10 @@ object PresetStore {
             if (!f.exists()) return
             val arr = org.json.JSONArray(f.readText())
             val list = ArrayList<Preset>()
-            for (i in 0 until arr.length()) list += fromJson(arr.getJSONObject(i))
+            for (i in 0 until arr.length()) {
+                val p = fromJson(arr.getJSONObject(i))
+                list += Presets.renamed[p.name]?.let { p.copy(name = it) } ?: p
+            }
             if (list.isNotEmpty()) {
                 // công thức mặc định mới ra ở bản sau: thêm vào cuối (chỉ một lần, xóa rồi thì không thêm lại)
                 val seenFile = java.io.File(c.filesDir, "presets_seen.txt")
@@ -51,6 +54,7 @@ object PresetStore {
         put("fs", arr(p.filmShadow)); put("fh", arr(p.filmHighlight))
         p.calib?.let { put("calib", arr(it)) }
         put("calibSat", p.calibSat.toDouble())
+        p.lutFile?.let { put("lut", it) }
     }
 
     fun fromJson(o: org.json.JSONObject) = Preset(
@@ -60,6 +64,7 @@ object PresetStore {
         farr(o.optJSONArray("fs")) ?: floatArrayOf(0f, 0f, 0f),
         farr(o.optJSONArray("fh")) ?: floatArrayOf(0f, 0f, 0f),
         farr(o.optJSONArray("calib")),
-        o.optDouble("calibSat", 1.0).toFloat()
+        o.optDouble("calibSat", 1.0).toFloat(),
+        if (o.has("lut")) o.getString("lut") else null
     )
 }

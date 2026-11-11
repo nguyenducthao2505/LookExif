@@ -57,6 +57,8 @@ data class EditOptions(
     val strength: Float = 1f,
     val ev: Double = preset?.ev ?: 0.0,
     val invert: Boolean = false,
+    /** Mức gỡ màu cũ 0..1,5. */
+    val invertStrength: Float = 1f,
     val smooth: Int = 0,
     val blemish: Boolean = false,
     /** Xóa viền tím 0..100. */
@@ -95,7 +97,7 @@ object Processor {
         val rows = 256
         val buf = IntArray(w * rows)
         val engine = o.preset?.let { ColorEngine(it, o.ev, o.strength) }
-        val inverter = src?.let { LookInverter(it) }
+        val inverter = src?.let { LookInverter(it, o.invertStrength) }
         // lượt 1: xóa viền tím ở độ phân giải đầy đủ (cần đọc thêm vài dòng đệm trên/dưới)
         if (o.defringe > 0) {
             val r = Defringe.radiusFor(w)
@@ -129,6 +131,8 @@ object Processor {
         ExifParser.exifSegmentForEdit(head)?.let { seg ->
             // ghi lại thông số mới để app (và phần mềm đọc EXIF Sony) thấy đúng màu, độ mịn da, kích thước
             val newLook = when {
+                o.preset != null && o.preset.lutFile != null && o.strength >= 0.5f ->
+                    Preset("", "", "ST", 0, 0, 0, 0, 0, 0.0, 0.0, 0.0, "")  // LUT: không gỡ lại màu này lần sau
                 o.preset != null && o.strength >= 0.5f -> o.preset
                 src != null -> Preset("", "", "ST", 0, 0, 0, 0, 0, 0.0, 0.0, 0.0, "")
                 else -> null

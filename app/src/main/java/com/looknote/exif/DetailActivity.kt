@@ -231,7 +231,7 @@ class DetailActivity : Activity() {
                     clipHigh = hist.clipHigh, clipLow = hist.clipLow
                 )
                 val tips = Assistant.tips(shot)
-                val withTips = info.copy(sections = listOf(Section("Trợ lý chụp", tips, highlight = true)) + info.sections)
+                val withTips = info.copy(sections = info.sections + Section("Trợ lý chụp", tips))
                 runOnUiThread {
                     if (token != loadToken) return@runOnUiThread
                     infoBox.removeAllViews()

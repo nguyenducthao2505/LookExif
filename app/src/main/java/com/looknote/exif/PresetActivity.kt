@@ -21,7 +21,7 @@ import java.util.Locale
 /** Quản lý công thức màu: thêm, sửa, xóa, hiệu chỉnh theo ảnh thật của máy. */
 class PresetActivity : Activity() {
 
-    companion object { private const val PICK_CAL = 51 }
+    companion object { private const val PICK_CAL = 51; private const val PICK_LUT = 52 }
 
     private lateinit var list: LinearLayout
     private var calIndex = -1
@@ -56,6 +56,8 @@ class PresetActivity : Activity() {
         actions.addView(Ui.button(this, "Khôi phục mặc định", false) { resetDefaults() },
             LinearLayout.LayoutParams(0, dp(42), 1f))
         col.addView(actions)
+        col.addView(Ui.button(this, "+ Thêm màu từ file LUT (.cube)", false) { pickLut() },
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42)).apply { topMargin = dp(8) })
 
         col.addView(TextView(this).apply {
             text = "Hiệu chỉnh theo máy: chụp cùng một cảnh 2 tấm, một tấm Creative Look ST (mọi thông số 0, WB Shift 0), " +
@@ -88,7 +90,7 @@ class PresetActivity : Activity() {
             })
             val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
             row.addView(Ui.button(this, "Sửa", false) { edit(i) }, LinearLayout.LayoutParams(0, dp(38), 1f).apply { rightMargin = dp(6) })
-            row.addView(Ui.button(this, if (p.calib != null) "Hiệu chỉnh lại" else "Hiệu chỉnh", false) { startCalibration(i) },
+            if (p.lutFile == null) row.addView(Ui.button(this, if (p.calib != null) "Hiệu chỉnh lại" else "Hiệu chỉnh", false) { startCalibration(i) },
                 LinearLayout.LayoutParams(0, dp(38), 1.3f).apply { rightMargin = dp(6) })
             row.addView(Ui.button(this, "Xóa", false) { confirmDelete(i) }, LinearLayout.LayoutParams(0, dp(38), 1f))
             card.addView(row)
@@ -144,6 +146,7 @@ class PresetActivity : Activity() {
 
     /** Sửa (i ≥ 0) hoặc thêm mới (i = -1). */
     private fun edit(i: Int) {
+        if (i >= 0 && Presets.all[i].lutFile != null) { renameLut(i); return }
         val p = if (i >= 0) Presets.all[i] else Preset("", "Công thức mới", "ST", 0, 0, 0, 0, 0, 0.0, 0.0, 0.0, "AWB")
         val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(6), dp(18), 0) }
         fun field(label: String, v: View) {
@@ -204,8 +207,45 @@ class PresetActivity : Activity() {
             .setNegativeButton("Hủy", null).show()
     }
 
+    // ---------- màu từ LUT ----------
+    private fun pickLut() {
+        val it = Intent(Intent.ACTION_OPEN_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type = "*/*" }
+        try { startActivityForResult(it, PICK_LUT) } catch (e: Exception) { Ui.toast(this, "Không mở được trình chọn file") }
+    }
+
+    private fun importLut(u: Uri) {
+        Thread {
+            val msg = try {
+                val bytes = contentResolver.openInputStream(u)?.use { it.readBytes() } ?: throw IllegalStateException("không đọc được file")
+                val lut = Lut.parse(bytes.inputStream())
+                val dir = java.io.File(filesDir, "luts").apply { mkdirs() }
+                val f = java.io.File(dir, "lut_${System.currentTimeMillis()}.cube")
+                f.writeBytes(bytes)
+                val name = Ui.displayName(this, u).substringBeforeLast('.').ifBlank { "LUT" }.take(40)
+                val n = Presets.all.count { it.lutFile != null } + 1
+                val p = Preset("L$n", name, "LUT", 0, 0, 0, 0, 0, 0.0, 0.0, 0.0, "", lutFile = f.absolutePath)
+                runOnUiThread { update(-1, p) }
+                "Đã thêm màu \"$name\" (LUT ${lut.size}×${lut.size}×${lut.size}). Dùng như các công thức khác khi chỉnh ảnh."
+            } catch (t: Throwable) { "Không thêm được LUT: ${t.message}" }
+            runOnUiThread { dialog().setTitle("Thêm màu từ LUT").setMessage(msg).setPositiveButton("OK", null).show() }
+        }.start()
+    }
+
+    private fun renameLut(i: Int) {
+        val p = Presets.all[i]
+        val e = EditText(this).apply {
+            setText(p.name); setTextColor(Ui.ink); setSingleLine()
+            background = Ui.rounded(this@PresetActivity, Ui.field, 10, Ui.line); setPadding(dp(12), dp(10), dp(12), dp(10))
+        }
+        val box = LinearLayout(this).apply { setPadding(dp(18), dp(8), dp(18), 0); addView(e, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)) }
+        dialog().setTitle("Đổi tên màu LUT").setView(box)
+            .setPositiveButton("Lưu") { _, _ -> update(i, p.copy(name = e.text.toString().trim().ifBlank { p.name })) }
+            .setNegativeButton("Hủy", null).show()
+    }
+
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == PICK_LUT) { if (resultCode == RESULT_OK) data?.data?.let { importLut(it) }; return }
         if (requestCode != PICK_CAL || resultCode != RESULT_OK || data == null) return
         val uris = ArrayList<Uri>()
         data.clipData?.let { c -> for (k in 0 until c.itemCount) c.getItemAt(k).uri?.let { uris += it } } ?: data.data?.let { uris += it }
