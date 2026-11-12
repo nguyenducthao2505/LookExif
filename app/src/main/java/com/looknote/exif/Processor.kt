@@ -62,7 +62,9 @@ data class EditOptions(
     val smooth: Int = 0,
     val blemish: Boolean = false,
     /** Xóa viền tím 0..100. */
-    val defringe: Int = 0
+    val defringe: Int = 0,
+    /** Cắt / xoay khi lưu (null = giữ nguyên khung). */
+    val crop: CropSpec? = null
 ) {
     val skin get() = smooth > 0 || blemish
 }
@@ -124,9 +126,16 @@ object Processor {
             work.setPixels(buf, 0, w, 0, y, w, hh)
             y += hh
         }
+        // lượt 3: cắt / xoay
+        var outBmp = work
+        if (o.crop != null && !o.crop.isIdentity) {
+            outBmp = Crop.apply(work, o.crop)
+            if (outBmp !== work) work.recycle()
+        }
+        val ow = outBmp.width; val oh = outBmp.height
         val bos = ByteArrayOutputStream()
-        work.compress(Bitmap.CompressFormat.JPEG, AppSettings.quality(c), bos)
-        work.recycle()
+        outBmp.compress(Bitmap.CompressFormat.JPEG, AppSettings.quality(c), bos)
+        outBmp.recycle()
         var jpg = bos.toByteArray()
         ExifParser.exifSegmentForEdit(head)?.let { seg ->
             // ghi lại thông số mới để app (và phần mềm đọc EXIF Sony) thấy đúng màu, độ mịn da, kích thước
@@ -139,13 +148,14 @@ object Processor {
             }
             val oldSkin = ExifParser.softSkin(head) ?: 0
             val skin = if (delta != null && o.smooth > 0) maxOf(oldSkin, SoftSkin.levelOf(o.smooth)) else null
-            ExifParser.rewrite(seg, ExifParser.Rewrite(newLook, skin, w, h, "LookExif " + appVersion(c)))
+            ExifParser.rewrite(seg, ExifParser.Rewrite(newLook, skin, ow, oh, "Sony look " + appVersion(c)))
             jpg = ExifParser.insertExif(jpg, seg)
         }
 
         val baseName = Ui.displayName(c, uri).substringBeforeLast('.')
         val tag = listOfNotNull(if (src != null) "doi" else null, o.preset?.slot?.ifBlank { null },
-            if (delta != null) "da" else null, if (o.defringe > 0) "vien" else null).joinToString("-").ifBlank { "chinh" }
+            if (delta != null) "da" else null, if (o.defringe > 0) "vien" else null,
+            if (o.crop != null && !o.crop.isIdentity) "cat" else null).joinToString("-").ifBlank { "chinh" }
         val outName = "${baseName}_LX-$tag.jpg"
         return Saved(saveJpeg(c, jpg, outName, "LookExif"), outName)
     }

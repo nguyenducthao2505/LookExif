@@ -127,7 +127,7 @@ object Ui {
 
     fun copy(c: Context, text: String) {
         val cm = c.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        cm.setPrimaryClip(ClipData.newPlainText("LookExif", text))
+        cm.setPrimaryClip(ClipData.newPlainText("Sony look", text))
         toast(c, "Đã sao chép thông số")
     }
 

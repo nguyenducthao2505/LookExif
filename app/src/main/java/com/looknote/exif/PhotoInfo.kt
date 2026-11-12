@@ -86,7 +86,7 @@ object PhotoInfoBuilder {
         if (fileSize > 0) picture += "Dung lượng" to sizeText(fileSize)
         val ext = name.substringAfterLast('.', "").uppercase()
         if (ext.isNotBlank() && ext.length <= 4) picture += "Định dạng" to ext
-        str(r.ifd0, 0x0131)?.takeIf { it.startsWith("LookExif") }?.let { picture += "Đã chỉnh bằng" to it }
+        str(r.ifd0, 0x0131)?.takeIf { it.startsWith("LookExif") || it.startsWith("Sony look") }?.let { picture += "Đã chỉnh bằng" to it }
 
         // ----- Phơi sáng -----
         val shutter = r.exif[0x829A]?.let { p.rational(it) }?.let { shutterText(it) } ?: NA

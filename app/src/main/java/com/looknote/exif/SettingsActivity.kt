@@ -80,7 +80,7 @@ class SettingsActivity : Activity() {
         col.addView(Ui.button(this, "Quản lý và hiệu chỉnh công thức", false) { startActivity(Intent(this, PresetActivity::class.java)) },
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42)))
 
-        col.addView(small("LookExif " + try { packageManager.getPackageInfo(packageName, 0).versionName } catch (e: Exception) { "" }).apply {
+        col.addView(small("Sony look " + try { packageManager.getPackageInfo(packageName, 0).versionName } catch (e: Exception) { "" }).apply {
             setPadding(0, dp(24), 0, 0)
         })
         setContentView(scroll)

@@ -83,7 +83,7 @@ class MainActivity : Activity() {
         }
         val titleRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         titleRow.addView(TextView(this).apply {
-            text = "LookExif"; textSize = 23f
+            text = "Sony look"; textSize = 23f
             setTypeface(typeface, Typeface.BOLD); setTextColor(Ui.ink)
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         titleRow.addView(Ui.button(this, "Công thức", false) { startActivity(Intent(this, PresetActivity::class.java)) },
@@ -134,7 +134,7 @@ class MainActivity : Activity() {
             visibility = View.GONE
         }
         permBox.addView(TextView(this).apply {
-            text = "Cho phép LookExif đọc ảnh trong máy để hiện toàn bộ ảnh như một thư viện.\n\n" +
+            text = "Cho phép Sony look đọc ảnh trong máy để hiện toàn bộ ảnh như một thư viện.\n\n" +
                 "App chỉ đọc ảnh, không sửa, không xóa và không gửi ảnh đi đâu."
             textSize = 14f; setTextColor(Ui.mute); gravity = Gravity.CENTER; setLineSpacing(0f, 1.25f)
         })
@@ -314,7 +314,7 @@ class MainActivity : Activity() {
             scanStatus != null -> "${shown.size} ảnh · $scanStatus"
             shown.isEmpty() -> "Không có ảnh nào"
             typeFilter == 1 -> "${shown.size} ảnh gốc chụp từ máy ảnh"
-            typeFilter == 2 -> "${shown.size} ảnh đã chỉnh bằng LookExif"
+            typeFilter == 2 -> "${shown.size} ảnh đã chỉnh bằng Sony look"
             typeFilter == 3 -> "${shown.size} ảnh có thể lỗi (nhắm mắt hoặc nhòe)"
             else -> "${shown.size} ảnh · Giữ lâu một ảnh để chọn nhiều"
         }

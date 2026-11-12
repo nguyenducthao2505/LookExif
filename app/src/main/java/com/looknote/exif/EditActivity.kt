@@ -1,6 +1,7 @@
 package com.looknote.exif
 
 import android.app.Activity
+import android.content.Intent
 import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Color
@@ -47,6 +48,11 @@ class EditActivity : Activity() {
     private var invAmount = 100
     private lateinit var smoothBar: SeekBar
     private lateinit var skinShot: TextView
+    private lateinit var cropInfo: TextView
+    private var crop = CropSpec()
+    private var shownBmp: Bitmap? = null
+    private var baseCropKey: CropSpec? = null
+    private var baseCropped: Bitmap? = null
 
     private var base: Bitmap? = null
     private var processed: Bitmap? = null
@@ -121,6 +127,15 @@ class EditActivity : Activity() {
         panel.addView(viewRow)
         histView = HistogramView(this)
         panel.addView(histView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(84)).apply { topMargin = dp(8) })
+
+        // --- Khung ảnh ---
+        panel.addView(sectionTitle("Khung ảnh"))
+        val cropRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        cropRow.addView(Ui.button(this, "✂ Cắt & xoay", false) { openCrop() }, LinearLayout.LayoutParams(0, dp(38), 1.4f).apply { rightMargin = dp(6) })
+        cropRow.addView(Ui.button(this, "Bỏ cắt", false) { crop = CropSpec(); cropChanged() }, LinearLayout.LayoutParams(0, dp(38), 1f))
+        panel.addView(cropRow)
+        cropInfo = small("Chưa cắt / xoay")
+        panel.addView(cropInfo)
 
         // --- Ống kính ---
         panel.addView(sectionTitle("Ống kính"))
@@ -286,13 +301,13 @@ class EditActivity : Activity() {
     private fun toggleCompare() {
         compareOn = !compareOn
         compareBtn.text = if (compareOn) "So sánh: Bật" else "So sánh: Tắt"
-        zoom.setCompare(if (compareOn && processed != null) base else null)
+        zoom.setCompare(if (compareOn && processed != null) croppedBase() else null)
     }
 
     private fun toggleClip() {
         clipOn = !clipOn
         clipBtn.text = if (clipOn) "Vùng cháy: Bật" else "Vùng cháy: Tắt"
-        refreshClip(processed ?: base)
+        refreshClip(shownBmp ?: base)
     }
 
     private fun refreshClip(b: Bitmap?) {
@@ -305,7 +320,8 @@ class EditActivity : Activity() {
 
     private val skinOn get() = smooth > 0 || blemish
     private val invertOn get() = invert && srcPreset != null
-    private val anyEdit get() = skinOn || selected >= 0 || invertOn || defringe > 0
+    private val colorEdit get() = skinOn || selected >= 0 || invertOn || defringe > 0
+    private val anyEdit get() = colorEdit || !crop.isIdentity
 
     private fun loadBase() {
         summary.text = "Đang mở ảnh..."
@@ -336,10 +352,9 @@ class EditActivity : Activity() {
                     saveBtn.isEnabled = false
                 } else {
                     base = b
-                    zoom.setImage(b)
+                    show(b)
                     updateLabels()
-                    refreshClip(b)
-                    if (anyEdit) render()
+                    if (colorEdit) render()
                 }
             }
             if (b != null) {
@@ -367,13 +382,14 @@ class EditActivity : Activity() {
     private fun options() = EditOptions(
         preset = if (selected >= 0) Presets.all[selected] else null,
         strength = strength / 100f, ev = ev, invert = invertOn, invertStrength = invAmount / 100f,
-        smooth = smooth, blemish = blemish, defringe = defringe
+        smooth = smooth, blemish = blemish, defringe = defringe,
+        crop = crop.takeIf { !it.isIdentity }
     )
 
     private fun render() {
         val b = base ?: return
-        if (!anyEdit) {
-            processed = null; zoom.swapBitmap(b); zoom.setCompare(null); refreshClip(b); return
+        if (!colorEdit) {
+            processed = null; show(b); return
         }
         val my = ++token
         val o = options()
@@ -392,9 +408,7 @@ class EditActivity : Activity() {
             runOnUiThread {
                 if (my != token) return@runOnUiThread
                 processed = out
-                zoom.swapBitmap(out)
-                if (compareOn) zoom.setCompare(b)
-                refreshClip(out)
+                show(out)
             }
         }
     }
@@ -427,5 +441,60 @@ class EditActivity : Activity() {
         }
     }
 
+    /** Hiện ảnh (đã cắt / xoay theo khung đang chọn). */
+    private fun show(out: Bitmap) {
+        val shown = try { Crop.apply(out, crop) } catch (t: Throwable) { out }
+        val cur = shownBmp
+        if (cur == null || cur.width != shown.width || cur.height != shown.height) zoom.setImage(shown) else zoom.swapBitmap(shown)
+        shownBmp = shown
+        zoom.setCompare(if (compareOn && processed != null) croppedBase() else null)
+        refreshClip(shown)
+    }
+
+    private fun croppedBase(): Bitmap? {
+        val b = base ?: return null
+        if (crop.isIdentity) return b
+        if (baseCropKey != crop || baseCropped == null) {
+            baseCropped = try { Crop.apply(b, crop) } catch (t: Throwable) { b }
+            baseCropKey = crop
+        }
+        return baseCropped
+    }
+
+    private fun openCrop() {
+        val b = base ?: run { Ui.toast(this, "Ảnh chưa mở xong"); return }
+        CropBridge.preview = processed ?: b
+        CropBridge.faces = faces ?: emptyList()
+        CropBridge.spec = crop
+        CropBridge.result = null
+        startActivityForResult(Intent(this, CropActivity::class.java), REQ_CROP)
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQ_CROP) {
+            if (resultCode == RESULT_OK) CropBridge.result?.let { crop = it }
+            CropBridge.preview = null; CropBridge.result = null
+            cropChanged()
+        }
+    }
+
+    private fun cropChanged() {
+        val b = base
+        cropInfo.text = if (b == null) "Chưa cắt / xoay" else {
+            var (fw, fh) = Ui.pixelSize(this, uri, orientation)
+            if (fw <= 0 || fh <= 0) { fw = b.width; fh = b.height }
+            val maxSide = if (AppSettings.fullRes(this)) 12000 else 4000
+            if (maxOf(fw, fh) > maxSide) { val k = maxSide.toFloat() / maxOf(fw, fh); fw = (fw * k).toInt(); fh = (fh * k).toInt() }
+            val (ow, oh) = CropGeom.outSize(fw, fh, crop)
+            if (crop.isIdentity) "Chưa cắt / xoay" else crop.describe(b.width, b.height).substringAfter(" · ", "").let { d ->
+                "Ảnh lưu ${ow}×${oh}" + (if (d.isNotBlank()) " · $d" else "")
+            }
+        }
+        (processed ?: b)?.let { show(it) }
+    }
+
     private fun dp(v: Int) = Ui.dp(this, v)
+
+    companion object { private const val REQ_CROP = 71 }
 }
