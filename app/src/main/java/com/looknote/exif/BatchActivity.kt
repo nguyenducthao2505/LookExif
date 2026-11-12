@@ -19,7 +19,7 @@ import android.widget.TextView
 /** Chỉnh hàng loạt: áp cùng một thiết lập cho nhiều ảnh rồi lưu từng ảnh. */
 class BatchActivity : Activity() {
 
-    private val chips = ArrayList<Button>()
+    private lateinit var lookGrid: LookGrid
     private var selected = -1
     private var strength = 100
     private var smooth = 0
@@ -72,15 +72,13 @@ class BatchActivity : Activity() {
             text = "Đổi công thức (gỡ màu lúc chụp)"; setTextColor(Ui.ink); isChecked = true
             setOnCheckedChangeListener { _, on -> invert = on }
         })
-        val hs = HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false }
-        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        (listOf("Không") + Presets.all.map { "${it.slot} · ${it.name}".trimStart(' ', '·') }).forEachIndexed { i, t ->
-            val b = Ui.button(this, t, false) { selected = i - 1; styleChips(); updateLabels() }
-            chips += b
-            row.addView(b, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(40)).apply { rightMargin = dp(6) })
-        }
-        hs.addView(row)
-        col.addView(hs, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6) })
+        // lưới xem trước, dựng từ ảnh đầu tiên trong lô
+        col.addView(TextView(this).apply {
+            text = "Ảnh xem trước dựng từ ảnh đầu tiên trong lô."; textSize = 12f; setTextColor(Ui.mute)
+        })
+        lookGrid = LookGrid(this) { selected = it; styleChips(); updateLabels() }
+        col.addView(lookGrid, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6) })
+        loadPreview(uris[0])
         col.addView(slider(100) { strength = it; updateLabels() })
 
         labels = TextView(this).apply { textSize = 12.5f; setTextColor(Ui.mute); setPadding(0, dp(12), 0, 0) }
@@ -112,11 +110,32 @@ class BatchActivity : Activity() {
     }
 
     private fun styleChips() {
-        chips.forEachIndexed { i, b ->
-            val on = (i - 1) == selected
-            b.background = Ui.rounded(this, if (on) Ui.accent else Ui.field, 12, if (on) 0 else Ui.line)
-            b.setTextColor(if (on) Color.WHITE else Ui.ink)
-        }
+        lookGrid.setSelected(selected)
+    }
+
+    /** Dựng ảnh nguồn cho lưới xem trước (gỡ màu lúc chụp nếu ảnh có thông số Creative Look). */
+    private fun loadPreview(u: android.net.Uri) {
+        Thread {
+            try {
+                val head = Ui.readHead(this, u, 512 * 1024)
+                val ori = PhotoInfoBuilder.build("", head).orientation
+                val src = PhotoInfoBuilder.sourcePreset(head)?.takeIf { it.look != "BW" && it.look != "SE" }
+                val b = Ui.decodeMax(this, u, 480, ori) ?: return@Thread
+                val s = LookGrid.small(b)
+                val out = if (src != null) {
+                    val w = s.width; val h = s.height
+                    val px = IntArray(w * h); s.getPixels(px, 0, w, 0, 0, w, h)
+                    LookInverter(src).process(px)
+                    android.graphics.Bitmap.createBitmap(px, w, h, android.graphics.Bitmap.Config.ARGB_8888)
+                } else s
+                runOnUiThread { if (!isFinishing) lookGrid.setSource(out) }
+            } catch (t: Throwable) { }
+        }.start()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        if (::lookGrid.isInitialized) lookGrid.release()
     }
 
     private fun updateLabels() {
