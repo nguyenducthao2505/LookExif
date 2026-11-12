@@ -8,7 +8,7 @@ import kotlin.math.pow
 import kotlin.math.sin
 
 /**
- * Màu phim Fujifilm / Kodak dựng sẵn trong app (mô phỏng gần đúng theo đặc trưng màu
+ * Màu phim Fujifilm / Kodak và màu máy Canon dựng sẵn trong app (mô phỏng gần đúng theo đặc trưng màu
  * thường được mô tả của từng loại phim / giả lập phim, không phải LUT chính hãng).
  * Mỗi màu được tính thành một LUT 3D 33 điểm ngay trong app, nên không cần file kèm theo.
  */
@@ -77,10 +77,10 @@ object FilmLook {
             f(-0.004f, 0f, 0.006f), f(0f, 0f, 0f), 0f,
             listOf(red(0f, 1.08f), skin(0f, 1f, 0.01f), green(-3f, 1.05f), blue(0f, 1.08f))),
         // ---------------- Canon (màu da trắng hồng) ----------------
-        Spec("canon_std", "Canon Tiêu chuẩn", f(1.01f, 0.995f, 0.995f), 0.25f, 0.98f,
+        Spec("canon_std", "Canon Tiêu chuẩn", f(1.015f, 0.99f, 0.99f), 0.25f, 0.98f,
             f(0.015f, 0.012f, 0.015f), f(0.995f, 0.99f, 0.985f), 1.12f,
             f(0.004f, -0.004f, 0.004f), f(0.006f, 0f, 0.002f), 0f,
-            listOf(red(2f, 1.12f), skin(4f, 0.98f, 0.02f), yellow(4f, 1.05f), green(6f, 1.12f), cyan(0f, 1.05f), blue(4f, 1.08f))),
+            listOf(red(2f, 1.12f), skin(5f, 0.98f, 0.025f), yellow(4f, 1.05f), green(6f, 1.12f), cyan(0f, 1.05f), blue(4f, 1.08f))),
         Spec("canon_portrait", "Canon Chân dung · da trắng hồng", f(1.01f, 0.99f, 0.993f), 0.08f, 0.93f,
             f(0.02f, 0.018f, 0.022f), f(0.995f, 0.985f, 0.985f), 1.0f,
             f(0.004f, -0.003f, 0.004f), f(0.008f, 0.001f, 0.002f), 0.1f,
