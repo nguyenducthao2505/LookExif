@@ -42,7 +42,10 @@ class EditActivity : Activity() {
     private lateinit var saveBtn: Button
     private lateinit var compareBtn: Button
     private lateinit var clipBtn: Button
-    private val chips = ArrayList<Button>()
+    private lateinit var lookGrid: LookGrid
+    private lateinit var expandBtn: Button
+    private var panelBig = false
+    private var thumbKey = ""
     private val skinChips = ArrayList<Button>()
     private lateinit var invLabel: TextView
     private var invAmount = 100
@@ -183,16 +186,11 @@ class EditActivity : Activity() {
         panel.addView(slider(150, 100, onChange = { invAmount = it; invLabel.text = "Mức gỡ màu cũ: $it%" }))
         srcInfo = small("Đang đọc thông số lúc chụp...")
         panel.addView(srcInfo)
-        val hs = HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false }
-        val chipRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        val labels = listOf("Không") + Presets.all.map { "${it.slot} · ${it.name}".trimStart(' ', '·') }
-        labels.forEachIndexed { i, text ->
-            val b = Ui.button(this, text, false) { select(i - 1) }
-            chips += b
-            chipRow.addView(b, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(40)).apply { rightMargin = dp(6) })
-        }
-        hs.addView(chipRow)
-        panel.addView(hs, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6) })
+        // lưới ảnh xem trước: nhìn nhiều look cùng lúc
+        expandBtn = Ui.button(this, "⤢ Mở rộng bảng chọn màu", false) { togglePanel() }
+        panel.addView(expandBtn, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(36)).apply { topMargin = dp(6) })
+        lookGrid = LookGrid(this) { select(it) }
+        panel.addView(lookGrid, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6) })
         summary = small("")
         panel.addView(summary)
         strengthLabel = label(); panel.addView(strengthLabel)
@@ -229,14 +227,16 @@ class EditActivity : Activity() {
                 leftMargin = dp(8); bottomMargin = dp(8)
             })
             val wide = resources.configuration.screenWidthDp >= 900
-            body.addView(panelScroll, LinearLayout.LayoutParams(dp(if (wide) 420 else 340), ViewGroup.LayoutParams.MATCH_PARENT))
+            if (panelBig) body.addView(panelScroll, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1.4f))
+            else body.addView(panelScroll, LinearLayout.LayoutParams(dp(if (wide) 420 else 340), ViewGroup.LayoutParams.MATCH_PARENT))
         } else {
             body.orientation = LinearLayout.VERTICAL
             body.addView(zoom, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f).apply {
                 leftMargin = dp(8); rightMargin = dp(8)
             })
             val tall = resources.configuration.screenHeightDp >= 900
-            body.addView(panelScroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(if (tall) 400 else 310)))
+            if (panelBig) body.addView(panelScroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 2f))
+            else body.addView(panelScroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(if (tall) 400 else 310)))
         }
     }
 
@@ -248,6 +248,7 @@ class EditActivity : Activity() {
     override fun onDestroy() {
         super.onDestroy()
         worker.shutdownNow()
+        if (::lookGrid.isInitialized) lookGrid.release()
         if (::zoom.isInitialized) zoom.release()
     }
 
@@ -271,15 +272,39 @@ class EditActivity : Activity() {
         evLabel.text = "Độ sáng: $e EV"
         smoothLabel.text = "Mịn da: $smooth" + (if (smooth > 0) " (≈ máy: ${SoftSkin.names[SoftSkin.levelOf(smooth)]})" else "")
         fringeLabel.text = "Xóa viền tím / xanh lá: $defringe%"
-        summary.text = if (selected < 0) "Chưa áp màu mới. Chọn một công thức ở trên."
+        summary.text = if (selected < 0) "Chưa áp màu mới. Chạm vào một ô màu ở trên."
         else Presets.all[selected].summary()
     }
 
     private fun styleChips() {
-        chips.forEachIndexed { i, b ->
-            val on = (i - 1) == selected
-            b.background = Ui.rounded(this, if (on) Ui.accent else Ui.field, 12, if (on) 0 else Ui.line)
-            b.setTextColor(if (on) Color.WHITE else Ui.ink)
+        lookGrid.setSelected(selected)
+    }
+
+    /** Phóng to / thu nhỏ bảng điều khiển để xem được nhiều ô màu hơn. */
+    private fun togglePanel() {
+        panelBig = !panelBig
+        expandBtn.text = if (panelBig) "⤡ Thu nhỏ bảng chọn màu" else "⤢ Mở rộng bảng chọn màu"
+        applyLayout()
+        if (panelBig) panelScroll.post { panelScroll.smoothScrollTo(0, expandBtn.top) }
+    }
+
+    /** Dựng lại ảnh xem trước trong lưới khi ảnh nguồn hoặc mức gỡ màu đổi. */
+    private fun refreshThumbs() {
+        val b = base ?: return
+        val inv = if (invertOn) srcPreset else null
+        val amount = invAmount / 100f
+        val key = "${System.identityHashCode(b)}-${inv != null}-$invAmount"
+        if (key == thumbKey) return
+        thumbKey = key
+        worker.execute {
+            val s = try { LookGrid.small(b) } catch (t: Throwable) { return@execute }
+            val out = if (inv != null) {
+                val w = s.width; val h = s.height
+                val px = IntArray(w * h); s.getPixels(px, 0, w, 0, 0, w, h)
+                LookInverter(inv, amount).process(px)
+                Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888)
+            } else s
+            runOnUiThread { lookGrid.setSource(out) }
         }
     }
 
@@ -353,6 +378,7 @@ class EditActivity : Activity() {
                 } else {
                     base = b
                     show(b)
+                    refreshThumbs()
                     updateLabels()
                     if (colorEdit) render()
                 }
@@ -388,6 +414,7 @@ class EditActivity : Activity() {
 
     private fun render() {
         val b = base ?: return
+        refreshThumbs()
         if (!colorEdit) {
             processed = null; show(b); return
         }
