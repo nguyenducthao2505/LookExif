@@ -34,7 +34,8 @@ class Lut(val size: Int, val data: FloatArray, val minV: FloatArray, val maxV: F
         /** Đọc (có bộ nhớ đệm) LUT từ đường dẫn file đã lưu trong app. */
         @Synchronized
         fun load(path: String): Lut? = cache[path] ?: try {
-            File(path).inputStream().use { parse(it) }.also { cache[path] = it }
+            (if (path.startsWith("film:")) FilmLook.lut(path.substring(5))!!
+             else File(path).inputStream().use { parse(it) }).also { cache[path] = it }
         } catch (e: Exception) { null }
 
         /** Đọc file .cube; báo lỗi nếu không phải LUT 3D hợp lệ. */

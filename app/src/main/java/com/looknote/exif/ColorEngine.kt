@@ -39,7 +39,7 @@ data class Preset(
             kotlin.math.abs(ab - o.ab) < 0.3 && kotlin.math.abs(gm - o.gm) < 0.3
 
     fun summary(): String {
-        if (lutFile != null) return "LUT 3D (.cube)"
+        if (lutFile != null) return if (lutFile.startsWith("film:")) "Màu phim dựng sẵn · chỉ áp trong app" else "LUT 3D (.cube)"
         fun s(v: Int) = if (v > 0) "+$v" else "$v"
         fun sh(v: Double, p: String, n: String) =
             if (v == 0.0) "0" else if (v > 0) p + PhotoInfoBuilder.fmt(v, 1) else n + PhotoInfoBuilder.fmt(-v, 1)
@@ -71,7 +71,7 @@ object Presets {
         floatArrayOf(-0.010f, 0.012f, 0.010f), floatArrayOf(0.010f, 0.006f, -0.008f)),
     Preset("B6", "Xanh rêu ấm 90s", "FL", 1, -2, -2, 2, -1, 2.0, -1.0, 0.0, "AWB",
         floatArrayOf(-0.020f, 0.025f, 0.005f), floatArrayOf(0.030f, 0.012f, -0.025f))
-)
+) + FilmLook.presets()
 
     /** Tên cũ → tên mới (đổi theo màu sắc công thức thể hiện). */
     val renamed = mapOf(

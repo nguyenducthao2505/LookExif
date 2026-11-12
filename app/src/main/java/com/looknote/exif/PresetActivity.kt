@@ -222,7 +222,7 @@ class PresetActivity : Activity() {
                 val f = java.io.File(dir, "lut_${System.currentTimeMillis()}.cube")
                 f.writeBytes(bytes)
                 val name = Ui.displayName(this, u).substringBeforeLast('.').ifBlank { "LUT" }.take(40)
-                val n = Presets.all.count { it.lutFile != null } + 1
+                val n = Presets.all.count { it.lutFile?.startsWith("film:") == false } + 1
                 val p = Preset("L$n", name, "LUT", 0, 0, 0, 0, 0, 0.0, 0.0, 0.0, "", lutFile = f.absolutePath)
                 runOnUiThread { update(-1, p) }
                 "Đã thêm màu \"$name\" (LUT ${lut.size}×${lut.size}×${lut.size}). Dùng như các công thức khác khi chỉnh ảnh."
