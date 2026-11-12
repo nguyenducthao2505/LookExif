@@ -39,7 +39,7 @@ data class Preset(
             kotlin.math.abs(ab - o.ab) < 0.3 && kotlin.math.abs(gm - o.gm) < 0.3
 
     fun summary(): String {
-        if (lutFile != null) return if (lutFile.startsWith("film:")) "Màu phim dựng sẵn · chỉ áp trong app" else "LUT 3D (.cube)"
+        if (lutFile != null) return if (lutFile.startsWith("film:")) "Màu dựng sẵn · chỉ áp trong app" else "LUT 3D (.cube)"
         fun s(v: Int) = if (v > 0) "+$v" else "$v"
         fun sh(v: Double, p: String, n: String) =
             if (v == 0.0) "0" else if (v > 0) p + PhotoInfoBuilder.fmt(v, 1) else n + PhotoInfoBuilder.fmt(-v, 1)

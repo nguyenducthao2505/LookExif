@@ -76,6 +76,19 @@ object FilmLook {
             f(0.015f, 0.015f, 0.018f), f(0.99f, 0.99f, 0.99f), 1.05f,
             f(-0.004f, 0f, 0.006f), f(0f, 0f, 0f), 0f,
             listOf(red(0f, 1.08f), skin(0f, 1f, 0.01f), green(-3f, 1.05f), blue(0f, 1.08f))),
+        // ---------------- Canon (màu da trắng hồng) ----------------
+        Spec("canon_std", "Canon Tiêu chuẩn", f(1.01f, 0.995f, 0.995f), 0.25f, 0.98f,
+            f(0.015f, 0.012f, 0.015f), f(0.995f, 0.99f, 0.985f), 1.12f,
+            f(0.004f, -0.004f, 0.004f), f(0.006f, 0f, 0.002f), 0f,
+            listOf(red(2f, 1.12f), skin(4f, 0.98f, 0.02f), yellow(4f, 1.05f), green(6f, 1.12f), cyan(0f, 1.05f), blue(4f, 1.08f))),
+        Spec("canon_portrait", "Canon Chân dung · da trắng hồng", f(1.01f, 0.99f, 0.993f), 0.08f, 0.93f,
+            f(0.02f, 0.018f, 0.022f), f(0.995f, 0.985f, 0.985f), 1.0f,
+            f(0.004f, -0.003f, 0.004f), f(0.008f, 0.001f, 0.002f), 0.1f,
+            listOf(red(4f, 0.95f), skin(5f, 0.9f, 0.045f), yellow(-4f, 0.9f), green(4f, 1f), blue(4f, 1f))),
+        Spec("canon_bright", "Canon trong trẻo · da hồng sáng", f(1f, 0.99f, 0.997f), -0.05f, 0.86f,
+            f(0.035f, 0.03f, 0.04f), f(0.99f, 0.985f, 0.99f), 0.92f,
+            f(0f, -0.002f, 0.006f), f(0.006f, 0.001f, 0.003f), 0.2f,
+            listOf(red(6f, 0.9f), skin(6f, 0.88f, 0.05f), yellow(-8f, 0.8f), green(-6f, 0.9f, 0.02f), blue(6f, 0.95f, 0.02f))),
         // ---------------- Kodak ----------------
         Spec("kodak_portra400", "Kodak Portra 400", f(1.02f, 1f, 0.97f), 0f, 0.95f,
             f(0.04f, 0.035f, 0.03f), f(0.98f, 0.96f, 0.92f), 0.9f,
@@ -185,9 +198,9 @@ object FilmLook {
 
     /** Các công thức màu phim đưa vào danh sách (mã lưu dạng "film:<id>"). */
     fun presets(): List<Preset> {
-        var nf = 0; var nk = 0
+        var nf = 0; var nk = 0; var nc = 0
         return specs.map { s ->
-        Preset(if (s.id.startsWith("fuji")) "F${++nf}" else "K${++nk}", s.name, "FILM", 0, 0, 0, 0, 0, 0.0, 0.0, 0.0, "",
+        Preset(when { s.id.startsWith("fuji") -> "F${++nf}"; s.id.startsWith("canon") -> "C${++nc}"; else -> "K${++nk}" }, s.name, "FILM", 0, 0, 0, 0, 0, 0.0, 0.0, 0.0, "",
             lutFile = "film:" + s.id)
         }
     }
