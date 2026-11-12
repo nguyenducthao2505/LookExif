@@ -1,6 +1,7 @@
 package com.looknote.exif
 
 import kotlin.math.atan2
+import kotlin.math.cbrt
 import kotlin.math.cos
 import kotlin.math.exp
 import kotlin.math.hypot
@@ -131,6 +132,92 @@ object FilmLook {
 
     fun spec(id: String) = specs.firstOrNull { it.id == id }
 
+    /**
+     * Mức ám màu đích trên trục xám: a*, b* ở vùng tối / giữa / sáng (L* khoảng 20 / 50 / 80); trắng giữ trắng.
+     * Fuji lấy theo số đo ảnh Fuji X-T5 thật có bảng màu (so với Provia). Kodak giữ độ ấm vừa phải.
+     * Canon không có trong bảng nên giữ nguyên như cũ.
+     * Mục đích: màu phim chỉ đổi sắc thái, không phủ một lớp ám vàng/xanh lên cả ảnh.
+     */
+    private val castTargets: Map<String, FloatArray> = mapOf(
+        "fuji_cc" to f(-0.9f, 1.5f, -1.0f, 2.5f, 0f, 1.0f),
+        "fuji_cn" to f(2.0f, 6.0f, 1.0f, 4.0f, 1.0f, 2.0f),
+        "fuji_nn" to f(-0.5f, 6.0f, 0f, 6.0f, 0.5f, 3.0f),
+        "fuji_400h" to f(-1.0f, -1.5f, -1.0f, -1.5f, -1.0f, -1.0f),
+        "fuji_superia" to f(-1.5f, 1.0f, -1.5f, 1.5f, -1.0f, 1.0f),
+        "fuji_velvia" to f(0.4f, -1.0f, 0f, 0.5f, 0.5f, 0.5f),
+        "fuji_eterna" to f(-0.5f, 2.5f, -1.0f, 2.0f, 0f, 1.0f),
+        "fuji_reala" to f(0f, 0f, 0f, 0f, 0f, 0f),
+        "kodak_portra400" to f(0f, 2.0f, 0.5f, 3.5f, 0.5f, 3.0f),
+        "kodak_portra160" to f(0f, 1.5f, 0f, 2.5f, 0f, 2.0f),
+        "kodak_gold200" to f(0f, 3.5f, 0f, 5.0f, 0f, 4.0f),
+        "kodak_ektar" to f(0.5f, 0.5f, 0.5f, 1.5f, 0.5f, 1.5f),
+        "kodak_ultramax" to f(-1.5f, 3.0f, -0.5f, 4.0f, 0f, 3.5f),
+        "kodak_colorplus" to f(0f, 4.0f, -0.5f, 5.0f, -1.0f, 4.5f),
+        "kodak_e100" to f(0f, -2.5f, 0f, -2.5f, 0f, -2.0f),
+        "kodak_kodachrome" to f(0.5f, 2.0f, 0.5f, 3.0f, 0.5f, 3.0f)
+    )
+
+    // ---- CIELAB (sRGB, D65) ----
+    private fun lin(c: Double) = if (c <= 0.04045) c / 12.92 else ((c + 0.055) / 1.055).pow(2.4)
+    private fun gam(c: Double) = if (c <= 0.0031308) 12.92 * c else 1.055 * c.pow(1.0 / 2.4) - 0.055
+    private fun fl(t: Double) = if (t > 216.0 / 24389.0) cbrt(t) else (24389.0 / 27.0 * t + 16.0) / 116.0
+    private fun fi(t: Double) = if (t * t * t > 216.0 / 24389.0) t * t * t else (116.0 * t - 16.0) / (24389.0 / 27.0)
+
+    private fun toLab(r: Double, g: Double, b: Double): DoubleArray {
+        val rl = lin(r); val gl = lin(g); val bl = lin(b)
+        val x = (0.4124564 * rl + 0.3575761 * gl + 0.1804375 * bl) / 0.95047
+        val y = 0.2126729 * rl + 0.7151522 * gl + 0.0721750 * bl
+        val z = (0.0193339 * rl + 0.1191920 * gl + 0.9503041 * bl) / 1.08883
+        val fx = fl(x); val fy = fl(y); val fz = fl(z)
+        return doubleArrayOf(116.0 * fy - 16.0, 500.0 * (fx - fy), 200.0 * (fy - fz))
+    }
+
+    private fun fromLab(l: Double, a: Double, b: Double): DoubleArray {
+        val fy = (l + 16.0) / 116.0; val fx = fy + a / 500.0; val fz = fy - b / 200.0
+        val x = fi(fx) * 0.95047; val y = fi(fy); val z = fi(fz) * 1.08883
+        val rl = 3.2404542 * x - 1.5371385 * y - 0.4985314 * z
+        val gl = -0.9692660 * x + 1.8760108 * y + 0.0415560 * z
+        val bl = 0.0556434 * x - 0.2040259 * y + 1.0572252 * z
+        return doubleArrayOf(gam(rl.coerceIn(0.0, 1.0)), gam(gl.coerceIn(0.0, 1.0)), gam(bl.coerceIn(0.0, 1.0)))
+    }
+
+    private fun interp(x: Double, xs: DoubleArray, ys: DoubleArray): Double {
+        val n = xs.size
+        if (x <= xs[0]) return x + (ys[0] - xs[0])
+        if (x >= xs[n - 1]) return x + (ys[n - 1] - xs[n - 1])
+        var lo = 0; var hi = n - 1
+        while (hi - lo > 1) { val m = (lo + hi) / 2; if (xs[m] <= x) lo = m else hi = m }
+        val t = (x - xs[lo]) / (xs[hi] - xs[lo])
+        return ys[lo] + (ys[hi] - ys[lo]) * t
+    }
+
+    /**
+     * Cân bằng trục xám: dựng 3 đường cong theo kênh để màu xám đi qua màu phim ra đúng mức ám đích [t],
+     * giữ nguyên độ sáng và đặc trưng màu sắc của phim.
+     */
+    private fun balanceMaps(s: Spec, t: FloatArray): Array<FloatArray> {
+        val n = 256
+        val src = Array(3) { DoubleArray(n) }
+        val dst = Array(3) { DoubleArray(n) }
+        val o = FloatArray(3)
+        val lx = doubleArrayOf(0.0, 20.0, 50.0, 80.0, 100.0)
+        val la = doubleArrayOf(0.0, t[0].toDouble(), t[2].toDouble(), t[4].toDouble(), 0.0)
+        val lb = doubleArrayOf(0.0, t[1].toDouble(), t[3].toDouble(), t[5].toDouble(), 0.0)
+        for (k in 0 until n) {
+            val v = k / (n - 1f)
+            apply(s, v, v, v, o)
+            val lab = toLab(o[0].toDouble(), o[1].toDouble(), o[2].toDouble())
+            val l = lab[0].coerceIn(0.0, 100.0)
+            val tg = fromLab(l, interp(l, lx, la), interp(l, lx, lb))
+            for (ch in 0..2) { src[ch][k] = o[ch].toDouble(); dst[ch][k] = tg[ch] }
+        }
+        return Array(3) { ch ->
+            val xs = src[ch]
+            for (k in 1 until n) if (xs[k] < xs[k - 1] + 1e-7) xs[k] = xs[k - 1] + 1e-7
+            FloatArray(1024) { i -> interp(i / 1023.0, xs, dst[ch]).coerceIn(0.0, 1.0).toFloat() }
+        }
+    }
+
     private fun smooth(e0: Float, e1: Float, x: Float): Float {
         val t = ((x - e0) / (e1 - e0)).coerceIn(0f, 1f); return t * t * (3 - 2 * t)
     }
@@ -185,12 +272,14 @@ object FilmLook {
     /** Dựng LUT 3D 33 điểm cho màu phim [id]. */
     fun lut(id: String): Lut? {
         val s = spec(id) ?: return null
+        val maps = castTargets[id]?.let { balanceMaps(s, it) }
         val n = 33
         val data = FloatArray(n * n * n * 3)
         val o = FloatArray(3)
         var k = 0
         for (bi in 0 until n) for (gi in 0 until n) for (ri in 0 until n) {
             apply(s, ri / (n - 1f), gi / (n - 1f), bi / (n - 1f), o)
+            if (maps != null) for (ch in 0..2) o[ch] = maps[ch][(o[ch].coerceIn(0f, 1f) * 1023f + 0.5f).toInt()]
             data[k++] = o[0]; data[k++] = o[1]; data[k++] = o[2]
         }
         return Lut(n, data, floatArrayOf(0f, 0f, 0f), floatArrayOf(1f, 1f, 1f))
