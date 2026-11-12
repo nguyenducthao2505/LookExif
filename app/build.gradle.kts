@@ -11,8 +11,8 @@ android {
         applicationId = "com.looknote.exif"
         minSdk = 26
         targetSdk = 34
-        versionCode = 12
-        versionName = "1.9"
+        versionCode = 13
+        versionName = "1.10"
     }
 
     buildTypes {
