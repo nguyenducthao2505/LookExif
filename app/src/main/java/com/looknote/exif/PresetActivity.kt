@@ -58,11 +58,14 @@ class PresetActivity : Activity() {
         col.addView(actions)
         col.addView(Ui.button(this, "+ Thêm màu từ file LUT (.cube)", false) { pickLut() },
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42)).apply { topMargin = dp(8) })
+        col.addView(Ui.button(this, "+ Dựng màu mới từ bảng màu 64 ô", false) {
+            startActivity(Intent(this, ChartLookActivity::class.java))
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42)).apply { topMargin = dp(8) })
 
         col.addView(TextView(this).apply {
-            text = "Hiệu chỉnh theo máy: chụp cùng một cảnh 2 tấm, một tấm Creative Look ST (mọi thông số 0, WB Shift 0), " +
-                "một tấm bằng đúng công thức này. Chọn cả 2 ảnh, app sẽ học màu thật của máy để mô phỏng và gỡ màu chính xác hơn. " +
-                "Nên đặt máy cố định, cùng ánh sáng, cùng phơi sáng."
+            text = "Hiệu chỉnh theo máy: đặt máy lên chân máy, chụp cùng một cảnh 2 tấm, một tấm Creative Look ST (mọi thông số 0, WB Shift 0), " +
+                "một tấm bằng đúng công thức này. Chọn cả 2 ảnh, app học bảng màu 3D thật của máy để gỡ màu và mô phỏng chính xác. " +
+                "Cảnh nên nhiều màu (hoa, quần áo, bảng màu), cùng ánh sáng, cùng phơi sáng, tắt DRO."
             textSize = 12f; setTextColor(Ui.mute); setPadding(0, dp(12), 0, dp(4)); setLineSpacing(0f, 1.2f)
         })
 
@@ -70,6 +73,11 @@ class PresetActivity : Activity() {
         col.addView(list)
         setContentView(scroll)
         render()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::list.isInitialized) render()
     }
 
     private fun render() {
@@ -95,7 +103,7 @@ class PresetActivity : Activity() {
             row.addView(Ui.button(this, "Xóa", false) { confirmDelete(i) }, LinearLayout.LayoutParams(0, dp(38), 1f))
             card.addView(row)
             if (p.calib != null) card.addView(Ui.button(this, "Bỏ hiệu chỉnh", false) {
-                update(i, p.copy(calib = null, calibSat = 1f))
+                update(i, p.copy(calib = null, calibSat = 1f, calibInv = null, calibFwd = null))
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(36)).apply { topMargin = dp(6) })
             list.addView(card, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(10) })
         }
@@ -186,7 +194,7 @@ class PresetActivity : Activity() {
                     ev = evVals[sEv.selectedItemPosition], wbNote = eWb.text.toString().trim().ifBlank { "AWB" }
                 )
                 // đổi thông số thì hiệu chỉnh cũ không còn đúng
-                val keep = if (n.sameSettings(p)) n else n.copy(calib = null, calibSat = 1f)
+                val keep = if (n.sameSettings(p)) n else n.copy(calib = null, calibSat = 1f, calibInv = null, calibFwd = null)
                 update(i, keep)
             }
             .setNegativeButton("Hủy", null).show()
@@ -283,11 +291,26 @@ class PresetActivity : Activity() {
         val a = IntArray(w * h); val b = IntArray(w * h)
         ref.getPixels(a, 0, w, 0, 0, w, h); tgt.getPixels(b, 0, w, 0, 0, w, h)
         val res = Calibration.fit(a, b, w, h)
+        // bảng màu 3D 2 chiều: gỡ màu khe (ảnh khe → ST) và mô phỏng khe (ST → ảnh khe)
+        val inv = Calib3D.build(b, a, w, h)
+        val fwd = Calib3D.build(a, b, w, h)
+        val dir = java.io.File(filesDir, "calib").apply { mkdirs() }
+        p.calibInv?.let { java.io.File(it).delete() }; p.calibFwd?.let { java.io.File(it).delete() }
+        val stamp = System.currentTimeMillis()
+        val fInv = java.io.File(dir, "inv_$stamp.cube"); val fFwd = java.io.File(dir, "fwd_$stamp.cube")
+        val use3d = fwd.error < res.error && fwd.coverage > 0.02
+        if (use3d) {
+            LabMath.writeCube(fInv, "${p.name} inverse", inv.size, inv.data)
+            LabMath.writeCube(fFwd, "${p.name}", fwd.size, fwd.data)
+        }
         val list = Presets.all.toMutableList()
-        list[i] = p.copy(calib = res.curves, calibSat = res.sat)
+        list[i] = p.copy(calib = res.curves, calibSat = res.sat,
+            calibInv = if (use3d) fInv.absolutePath else null, calibFwd = if (use3d) fFwd.absolutePath else null)
         PresetStore.save(this, list)
-        val q = when { res.error < 4 -> "rất tốt"; res.error < 8 -> "tốt"; res.error < 14 -> "tạm được (2 ảnh có thể hơi lệch khung)"; else -> "kém (2 ảnh lệch nhiều hoặc khác ánh sáng)" }
-        return "Đã hiệu chỉnh ${p.name}. Độ khớp: $q (sai số ${PhotoInfoBuilder.fmt(res.error, 1)}/255).$warn"
+        val err = if (use3d) fwd.error else res.error
+        val q = when { err < 4 -> "rất tốt"; err < 8 -> "tốt"; err < 14 -> "tạm được (2 ảnh có thể hơi lệch khung)"; else -> "kém (2 ảnh lệch nhiều hoặc khác ánh sáng)" }
+        val kind = if (use3d) "bảng màu 3D (sai số 1D cũ ${PhotoInfoBuilder.fmt(res.error, 1)})" else "đường cong 1D"
+        return "Đã hiệu chỉnh ${p.name} bằng $kind. Độ khớp: $q (sai số ${PhotoInfoBuilder.fmt(err, 1)}/255).$warn"
     }
 
     private data class Quint(val a: Uri, val b: ByteArray, val c: Uri, val d: ByteArray, val e: Preset?)

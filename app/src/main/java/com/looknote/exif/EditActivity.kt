@@ -353,7 +353,8 @@ class EditActivity : Activity() {
         worker.execute {
             val head = try { Ui.readHead(this, uri, 512 * 1024) } catch (e: Exception) { ByteArray(0) }
             orientation = PhotoInfoBuilder.build("", head).orientation
-            val src = PhotoInfoBuilder.sourcePreset(head)
+            val chk = SourceCheck.check(head)
+            val src = PhotoInfoBuilder.sourcePreset(head)?.takeIf { !chk.builtColor }
             val shotSkin = ExifParser.softSkin(head)
             val b = try { Ui.decodeMax(this, uri, 1800, orientation) } catch (e: Throwable) { null }
             runOnUiThread {
@@ -363,15 +364,25 @@ class EditActivity : Activity() {
                     else -> "Lúc chụp: Soft Skin Effect ${SoftSkin.names[shotSkin]} (máy đã làm mịn sẵn). Chọn thêm sẽ mịn chồng lên."
                 }
                 when {
+                    chk.builtColor -> srcInfo.text = "Ảnh đã áp màu dựng sẵn bằng app: không gỡ màu lần nữa."
                     src == null -> srcInfo.text = "Ảnh không có thông số Creative Look của Sony: màu mới sẽ áp chồng lên màu sẵn có."
                     src.look == "BW" || src.look == "SE" -> srcInfo.text = "Ảnh chụp đen trắng/sepia: không gỡ lại được màu."
                     else -> {
                         srcPreset = src
-                        srcInfo.text = "Lúc chụp: " + src.summary() + (if (Presets.match(src) != null) " (dùng màu đã hiệu chỉnh theo máy)" else "")
+                        val m = Presets.match(src)
+                        val neutral = src.look == "ST" && src.contrast == 0 && src.highlights == 0 && src.shadows == 0 &&
+                            src.fade == 0 && src.saturation == 0 && kotlin.math.abs(src.ab) < 0.3 && kotlin.math.abs(src.gm) < 0.3
+                        srcInfo.text = "Lúc chụp: " + src.summary() + when {
+                            neutral -> " (ảnh ST 0 — nguồn tốt nhất để đổi màu)"
+                            m?.calibInv != null -> " (gỡ màu bằng bảng 3D đã hiệu chỉnh theo máy)"
+                            m != null -> " (dùng màu đã hiệu chỉnh theo máy)"
+                            else -> " (gỡ màu theo mô hình ước lượng — hiệu chỉnh khe này trong Công thức màu để chính xác hơn, hoặc chụp ST 0)"
+                        }
                         invertBox.isEnabled = true
                         invertBox.isChecked = true
                     }
                 }
+                if (chk.warnings.isNotEmpty()) srcInfo.text = srcInfo.text.toString() + "\n⚠ " + chk.warnings.joinToString("\n⚠ ")
                 if (b == null) {
                     summary.text = "Không mở được ảnh này (định dạng RAW chưa hỗ trợ chỉnh)."
                     saveBtn.isEnabled = false

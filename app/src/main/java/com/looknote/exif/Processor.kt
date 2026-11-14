@@ -80,7 +80,7 @@ object Processor {
     fun processAndSave(c: Context, uri: Uri, o: EditOptions, delta0: SkinRetouch.Delta? = null): Saved {
         val head = Ui.readHead(c, uri, 512 * 1024)
         val orient = PhotoInfoBuilder.build("", head).orientation
-        val src = if (o.invert) PhotoInfoBuilder.sourcePreset(head)?.takeIf { it.look != "BW" && it.look != "SE" } else null
+        val src = if (o.invert && !SourceCheck.check(head).builtColor) PhotoInfoBuilder.sourcePreset(head)?.takeIf { it.look != "BW" && it.look != "SE" } else null
 
         var delta = delta0
         if (delta == null && o.skin) {
@@ -148,7 +148,11 @@ object Processor {
             }
             val oldSkin = ExifParser.softSkin(head) ?: 0
             val skin = if (delta != null && o.smooth > 0) maxOf(oldSkin, SoftSkin.levelOf(o.smooth)) else null
-            ExifParser.rewrite(seg, ExifParser.Rewrite(newLook, skin, ow, oh, "Sony look " + appVersion(c)))
+            // màu dựng sẵn / LUT: đánh dấu để lần chỉnh sau không gỡ nhầm và cảnh báo màu chồng màu
+            val built = (o.preset != null && o.preset.lutFile != null && o.strength >= 0.5f) ||
+                (src == null && SourceCheck.check(head).builtColor)
+            ExifParser.rewrite(seg, ExifParser.Rewrite(newLook, skin, ow, oh,
+                (if (built) SourceCheck.BUILT_MARK else "Sony look ") + appVersion(c)))
             jpg = ExifParser.insertExif(jpg, seg)
         }
 

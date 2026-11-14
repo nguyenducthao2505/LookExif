@@ -30,7 +30,10 @@ data class Preset(
     /** Hệ số độ bão hòa đi kèm hiệu chỉnh. */
     val calibSat: Float = 1f,
     /** Đường dẫn file LUT 3D (.cube) đã nhập; khác null là công thức LUT. */
-    val lutFile: String? = null
+    val lutFile: String? = null,
+    /** Hiệu chỉnh 3D theo máy (file .cube trong app): gỡ màu khe (ảnh khe → ST) và mô phỏng khe (ST → ảnh khe). */
+    val calibInv: String? = null,
+    val calibFwd: String? = null
 ) {
     /** Hai công thức có cùng thông số máy (dùng để nhận ra ảnh chụp bằng công thức nào). */
     fun sameSettings(o: Preset): Boolean =
@@ -44,7 +47,7 @@ data class Preset(
         fun sh(v: Double, p: String, n: String) =
             if (v == 0.0) "0" else if (v > 0) p + PhotoInfoBuilder.fmt(v, 1) else n + PhotoInfoBuilder.fmt(-v, 1)
         return "$look · C${s(contrast)} H${s(highlights)} S${s(shadows)} F$fade Sat${s(saturation)} · " +
-            "$wbNote ${sh(ab, "A", "B")} ${sh(gm, "M", "G")}" + (if (calib != null) " · đã hiệu chỉnh theo máy" else "")
+            "$wbNote ${sh(ab, "A", "B")} ${sh(gm, "M", "G")}" + (if (calibFwd != null) " · đã hiệu chỉnh 3D theo máy" else if (calib != null) " · đã hiệu chỉnh theo máy" else "")
     }
 }
 
@@ -85,7 +88,7 @@ object Presets {
     /** Danh sách công thức đang dùng (người dùng thêm/sửa được). */
     @Volatile var all: List<Preset> = defaults
     /** Công thức trong danh sách có cùng thông số máy với ảnh (để dùng hiệu chỉnh khi gỡ màu). */
-    fun match(src: Preset): Preset? = all.firstOrNull { it.calib != null && it.sameSettings(src) }
+    fun match(src: Preset): Preset? = all.firstOrNull { (it.calib != null || it.calibInv != null) && it.sameSettings(src) }
 
 }
 
@@ -154,12 +157,12 @@ class ColorEngine(p: Preset, evOverride: Double = p.ev, private val strength: Fl
         }
     }
 
-    private val cube: Lut? = p.lutFile?.let { Lut.load(it) }
+    private val cube: Lut? = (p.lutFile ?: p.calibFwd)?.let { Lut.load(it) }
     private val lutOut = FloatArray(3)
     private val calib = p.calib
     private val calibSat = p.calibSat
     // bù sáng khi dùng hiệu chỉnh: chỉ phần chênh so với mức bù sáng của công thức
-    private val evLut: FloatArray? = if (p.calib != null || p.lutFile != null) FloatArray(1024) { i ->
+    private val evLut: FloatArray? = if (p.calib != null || p.lutFile != null || p.calibFwd != null) FloatArray(1024) { i ->
         val k = 2.0.pow((evOverride - p.ev) * 0.6)
         (1.0 - (1.0 - i / 1023.0).pow(k)).toFloat()
     } else null
@@ -268,6 +271,11 @@ class LookInverter(src0: Preset, private val amount: Float = 1f) {
         }
     }
     private val calSatInv = 1f / max(0.35f, cal?.calibSat ?: 1f)
+    /** Bảng gỡ màu 3D học từ ảnh thật (chính xác hơn đường cong 1D). */
+    private val cube3: Lut? = cal?.calibInv?.let { Lut.load(it) }
+    private val cubeOut = FloatArray(3)
+    /** Đang gỡ bằng dữ liệu đo từ ảnh thật của máy (không phải mô hình ước lượng). */
+    val measured: Boolean get() = cube3 != null || calInv != null
 
     private fun calIn(ch: Int, v: Float): Float {
         val c = calInv!!
@@ -324,6 +332,14 @@ class LookInverter(src0: Preset, private val amount: Float = 1f) {
             var g = ((c shr 8) and 0xFF) / 255f
             var b = (c and 0xFF) / 255f
 
+            if (cube3 != null) {
+                cube3.lookup(r, g, b, cubeOut)
+                val ri = (max(0f, min(1f, cubeOut[0])) * 255f + 0.5f).toInt()
+                val gi = (max(0f, min(1f, cubeOut[1])) * 255f + 0.5f).toInt()
+                val bi = (max(0f, min(1f, cubeOut[2])) * 255f + 0.5f).toInt()
+                px[i] = (a shl 24) or (ri shl 16) or (gi shl 8) or bi
+                continue
+            }
             if (calInv != null) {
                 val l0 = 0.299f * r + 0.587f * g + 0.114f * b
                 r = l0 + (r - l0) * calSatInv; g = l0 + (g - l0) * calSatInv; b = l0 + (b - l0) * calSatInv

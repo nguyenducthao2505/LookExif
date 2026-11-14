@@ -30,7 +30,7 @@ class LookGrid(
     private val onPick: (Int) -> Unit
 ) : LinearLayout(ctx) {
 
-    private enum class Group(val label: String) { ALL("Tất cả"), CAM("Máy ảnh"), FUJI("Fuji"), KODAK("Kodak"), CANON("Canon"), LUT("LUT") }
+    private enum class Group(val label: String) { ALL("Tất cả"), CAM("Máy ảnh"), FUJI("Fuji"), CANON("Canon"), LUT("LUT"), REF("Tham khảo") }
 
     private val main = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
@@ -132,10 +132,11 @@ class LookGrid(
     }
 
     private fun groupOf(p: Preset): Group {
-        val f = p.lutFile ?: return Group.CAM
+        // màu tham khảo (công thức ước lượng từ ảnh mạng, phim Kodak dựng tay): không hiện trong "Tất cả"
+        val f = p.lutFile ?: return if (p.slot.startsWith("B")) Group.REF else Group.CAM
         return when {
             f.startsWith("film:fuji") -> Group.FUJI
-            f.startsWith("film:kodak") -> Group.KODAK
+            f.startsWith("film:kodak") -> Group.REF
             f.startsWith("film:canon") -> Group.CANON
             f.startsWith("film:") -> Group.LUT
             else -> Group.LUT
@@ -143,7 +144,7 @@ class LookGrid(
     }
 
     private fun visibleIndices(): List<Int> =
-        Presets.all.indices.filter { group == Group.ALL || groupOf(Presets.all[it]) == group }
+        Presets.all.indices.filter { val g = groupOf(Presets.all[it]); if (group == Group.ALL) g != Group.REF else g == group }
 
     private fun build() {
         gridBox.removeAllViews()

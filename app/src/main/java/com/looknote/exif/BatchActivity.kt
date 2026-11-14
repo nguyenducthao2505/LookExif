@@ -119,7 +119,7 @@ class BatchActivity : Activity() {
             try {
                 val head = Ui.readHead(this, u, 512 * 1024)
                 val ori = PhotoInfoBuilder.build("", head).orientation
-                val src = PhotoInfoBuilder.sourcePreset(head)?.takeIf { it.look != "BW" && it.look != "SE" }
+                val src = PhotoInfoBuilder.sourcePreset(head)?.takeIf { it.look != "BW" && it.look != "SE" && !SourceCheck.check(head).builtColor }
                 val b = Ui.decodeMax(this, u, 480, ori) ?: return@Thread
                 val s = LookGrid.small(b)
                 val out = if (src != null) {

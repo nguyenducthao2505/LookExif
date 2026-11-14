@@ -15,7 +15,10 @@ object PresetStore {
             val list = ArrayList<Preset>()
             for (i in 0 until arr.length()) {
                 val p = fromJson(arr.getJSONObject(i))
-                list += Presets.renamed[p.name]?.let { p.copy(name = it) } ?: p
+                val q = Presets.renamed[p.name]?.let { p.copy(name = it) } ?: p
+                // màu phim ước lượng: cập nhật tên theo bản mới (ghi rõ "ước lượng")
+                list += if (q.lutFile == "film:fuji_400h" || q.lutFile == "film:fuji_superia")
+                    FilmLook.presets().firstOrNull { it.lutFile == q.lutFile }?.let { d -> q.copy(name = d.name) } ?: q else q
             }
             if (list.isNotEmpty()) {
                 // công thức mặc định mới ra ở bản sau: thêm vào cuối (chỉ một lần, xóa rồi thì không thêm lại)
@@ -55,6 +58,8 @@ object PresetStore {
         p.calib?.let { put("calib", arr(it)) }
         put("calibSat", p.calibSat.toDouble())
         p.lutFile?.let { put("lut", it) }
+        p.calibInv?.let { put("cinv", it) }
+        p.calibFwd?.let { put("cfwd", it) }
     }
 
     fun fromJson(o: org.json.JSONObject) = Preset(
@@ -65,6 +70,8 @@ object PresetStore {
         farr(o.optJSONArray("fh")) ?: floatArrayOf(0f, 0f, 0f),
         farr(o.optJSONArray("calib")),
         o.optDouble("calibSat", 1.0).toFloat(),
-        if (o.has("lut")) o.getString("lut") else null
+        if (o.has("lut")) o.getString("lut") else null,
+        if (o.has("cinv")) o.getString("cinv") else null,
+        if (o.has("cfwd")) o.getString("cfwd") else null
     )
 }
