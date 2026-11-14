@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Giao diện kiểu máy ảnh phim: đen ấm, chữ kem, điểm nhấn hổ phách -->
+    <style name="Theme.Film" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:colorAccent">#F0A23B</item>
+        <item name="android:colorPrimary">#141210</item>
+        <item name="android:colorPrimaryDark">#141210</item>
+        <item name="android:colorControlActivated">#F0A23B</item>
+        <item name="android:colorControlNormal">#A0957F</item>
+        <item name="android:colorControlHighlight">#33F0A23B</item>
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:statusBarColor">#141210</item>
+        <item name="android:navigationBarColor">#141210</item>
+        <item name="android:textColorPrimary">#F2EADB</item>
+        <item name="android:textColorSecondary">#A0957F</item>
+    </style>
+</resources>
