@@ -123,10 +123,11 @@ object Film {
         box.addView(ImageView(c).apply { setImageDrawable(IconDrawable(kind, ink)) },
             LinearLayout.LayoutParams(dp(c, 22), dp(c, 22)))
         if (caption != null) box.addView(TextView(c).apply {
-            text = caption; textSize = 10f; typeface = Film.display; letterSpacing = 0.04f
-            setTextColor(if (primary) Ui.onAccent else Ui.mute); maxLines = 1; ellipsize = TextUtils.TruncateAt.END
+            // không dùng letterSpacing + ellipsize cùng lúc: Android cắt chữ sớm ("Côn...")
+            text = caption; textSize = 10f; typeface = Film.display
+            setTextColor(if (primary) Ui.onAccent else Ui.mute); setSingleLine(true)
             gravity = Gravity.CENTER
-        })
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         return box
     }
 

@@ -111,7 +111,7 @@ class EditActivity : Activity() {
 
         body = LinearLayout(this)
         root.addView(body, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-        zoom = ZoomView(this).apply { setBackgroundColor(Color.parseColor("#0A0A0A")) }
+        zoom = ZoomView(this).apply { setBackgroundColor(Color.parseColor("#0D0B09")) }
 
         // ----- Bảng điều khiển -----
         panelScroll = ScrollView(this)
@@ -231,10 +231,20 @@ class EditActivity : Activity() {
             else body.addView(panelScroll, LinearLayout.LayoutParams(dp(if (wide) 420 else 340), ViewGroup.LayoutParams.MATCH_PARENT))
         } else {
             body.orientation = LinearLayout.VERTICAL
+            val tall = resources.configuration.screenHeightDp >= 900
+            if (!panelBig && previewAspect > 0f) {
+                // khung xem vừa đúng tỉ lệ ảnh: ảnh ngang không còn dải đen thừa, bảng điều khiển rộng hơn
+                val dm = resources.displayMetrics
+                val h = ((dm.widthPixels - dp(16)) * previewAspect).toInt().coerceIn(dp(200), (dm.heightPixels * 0.55f).toInt())
+                body.addView(zoom, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, h).apply {
+                    leftMargin = dp(8); rightMargin = dp(8)
+                })
+                body.addView(panelScroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+                return
+            }
             body.addView(zoom, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f).apply {
                 leftMargin = dp(8); rightMargin = dp(8)
             })
-            val tall = resources.configuration.screenHeightDp >= 900
             if (panelBig) body.addView(panelScroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 2f))
             else body.addView(panelScroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(if (tall) 400 else 310)))
         }
@@ -378,7 +388,16 @@ class EditActivity : Activity() {
                         invertBox.isChecked = true
                     }
                 }
-                if (chk.warnings.isNotEmpty()) srcInfo.text = srcInfo.text.toString() + "\n⚠ " + chk.warnings.joinToString("\n⚠ ")
+                if (chk.warnings.isNotEmpty()) {
+                    // cảnh báo nổi bật: nền hổ phách nhạt, chữ sáng
+                    srcInfo.text = srcInfo.text.toString() + "\n\n⚠ " + chk.warnings.joinToString("\n⚠ ")
+                    srcInfo.setTextColor(Ui.ink)
+                    srcInfo.background = Ui.rounded(this, Ui.accentSoft, 10)
+                    srcInfo.setPadding(dp(12), dp(10), dp(12), dp(10))
+                } else {
+                    srcInfo.background = null
+                    srcInfo.setTextColor(Ui.mute)
+                }
                 if (b == null) {
                     summary.text = "Không mở được ảnh này (định dạng RAW chưa hỗ trợ chỉnh)."
                     saveBtn.isEnabled = false
@@ -475,9 +494,14 @@ class EditActivity : Activity() {
         }
     }
 
+    /** Tỉ lệ cao/rộng của ảnh đang xem (0 = chưa biết). */
+    private var previewAspect = 0f
+
     /** Hiện ảnh (đã cắt / xoay theo khung đang chọn). */
     private fun show(out: Bitmap) {
         val shown = try { Crop.apply(out, crop) } catch (t: Throwable) { out }
+        val asp = shown.height.toFloat() / shown.width.coerceAtLeast(1)
+        if (kotlin.math.abs(asp - previewAspect) > 0.01f) { previewAspect = asp; applyLayout() }
         val cur = shownBmp
         if (cur == null || cur.width != shown.width || cur.height != shown.height) zoom.setImage(shown) else zoom.swapBitmap(shown)
         shownBmp = shown

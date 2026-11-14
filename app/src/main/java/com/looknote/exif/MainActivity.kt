@@ -493,8 +493,8 @@ class MainActivity : Activity() {
                 cell = SquareFrame(this@MainActivity).apply { setBackgroundColor(Ui.card) }
                 iv = ImageView(this@MainActivity).apply { scaleType = ImageView.ScaleType.CENTER_CROP }
                 badge = TextView(this@MainActivity).apply {
-                    textSize = 11f; setTypeface(typeface, Typeface.BOLD); setTextColor(Color.WHITE)
-                    background = Ui.rounded(this@MainActivity, Color.parseColor("#CCB5452F"), 6)
+                    textSize = 11f; typeface = Film.mono; setTextColor(Ui.onAccent)
+                    background = Ui.rounded(this@MainActivity, Color.parseColor("#E6F0A23B"), 6)
                     setPadding(dp(6), dp(1), dp(6), dp(2))
                 }
                 qBadge = TextView(this@MainActivity).apply {
