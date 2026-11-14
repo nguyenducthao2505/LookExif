@@ -49,11 +49,11 @@ class BatchActivity : Activity() {
         scroll.addView(col)
 
         val bar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        bar.addView(Ui.button(this, "‹ Quay lại", false) { if (!running) finish() else Ui.toast(this, "Đang xử lý, bấm Dừng trước") },
-            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(40)))
+        bar.addView(Film.iconButton(this, IconDrawable.Kind.BACK, null) { if (!running) finish() else Ui.toast(this, "Đang xử lý, bấm Dừng trước") },
+            LinearLayout.LayoutParams(dp(44), dp(40)))
         bar.addView(TextView(this).apply {
             text = "Chỉnh hàng loạt (${uris.size} ảnh)"; textSize = 17f
-            setTypeface(typeface, Typeface.BOLD); setTextColor(Ui.ink); setPadding(dp(12), 0, 0, 0)
+            typeface = Film.display; letterSpacing = 0.08f; setTextColor(Ui.ink); setPadding(dp(12), 0, 0, 0)
         })
         col.addView(bar)
 
@@ -95,10 +95,8 @@ class BatchActivity : Activity() {
         styleChips(); updateLabels()
     }
 
-    private fun title(t: String) = TextView(this).apply {
-        text = t.uppercase(); textSize = 11.5f; letterSpacing = 0.06f
-        setTypeface(typeface, Typeface.BOLD); setTextColor(Ui.accent); setPadding(0, dp(16), 0, dp(2))
-    }
+    private var sectionNo = 0
+    private fun title(t: String) = Film.sectionHeader(this, ++sectionNo, t)
 
     private fun slider(start: Int, mx: Int = 100, f: (Int) -> Unit) = SeekBar(this).apply {
         max = mx; progress = start

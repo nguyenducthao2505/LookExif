@@ -30,10 +30,10 @@ class SettingsActivity : Activity() {
         scroll.addView(col)
 
         val bar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        bar.addView(Ui.button(this, "‹ Quay lại", false) { finish() },
-            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(40)))
+        bar.addView(Film.iconButton(this, IconDrawable.Kind.BACK, null) { finish() },
+            LinearLayout.LayoutParams(dp(44), dp(40)))
         bar.addView(TextView(this).apply {
-            text = "Cài đặt"; textSize = 18f; setTypeface(typeface, Typeface.BOLD); setTextColor(Ui.ink); setPadding(dp(12), 0, 0, 0)
+            text = "Cài đặt"; textSize = 17f; typeface = Film.display; letterSpacing = 0.08f; setTextColor(Ui.ink); setPadding(dp(12), 0, 0, 0)
         })
         col.addView(bar)
 
@@ -90,10 +90,8 @@ class SettingsActivity : Activity() {
         text = t; this.id = id; setTextColor(Ui.ink); setPadding(dp(6), dp(6), dp(12), dp(6))
     }
 
-    private fun title(t: String) = TextView(this).apply {
-        text = t.uppercase(); textSize = 11.5f; letterSpacing = 0.06f
-        setTypeface(typeface, Typeface.BOLD); setTextColor(Ui.accent); setPadding(0, dp(18), 0, dp(4))
-    }
+    private var sectionNo = 0
+    private fun title(t: String) = Film.sectionHeader(this, ++sectionNo, t)
 
     private fun small(t: String) = TextView(this).apply { text = t; textSize = 12f; setTextColor(Ui.mute); setPadding(0, dp(4), 0, 0) }
 

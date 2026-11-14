@@ -82,17 +82,24 @@ class MainActivity : Activity() {
             setPadding(dp(14), dp(14), dp(14), dp(4))
         }
         val titleRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        titleRow.addView(TextView(this).apply {
-            text = "Sony look"; textSize = 23f
-            setTypeface(typeface, Typeface.BOLD); setTextColor(Ui.ink)
-        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        titleRow.addView(Ui.button(this, "Công thức", false) { startActivity(Intent(this, PresetActivity::class.java)) },
-            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(38)).apply { rightMargin = dp(6) })
-        titleRow.addView(Ui.button(this, "Cài đặt", false) { startActivity(Intent(this, SettingsActivity::class.java)) },
-            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(38)).apply { rightMargin = dp(6) })
-        titleRow.addView(Ui.button(this, "Mở file", false) { pick() },
-            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(38)))
+        val titleCol = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        titleCol.addView(TextView(this).apply {
+            text = "SONY LOOK"; textSize = 24f; typeface = Film.display; letterSpacing = 0.12f
+            setTextColor(Ui.ink); maxLines = 1
+        })
+        titleCol.addView(TextView(this).apply {
+            text = "PHÒNG TỐI MÀU PHIM · v" + Processor.appVersion(this@MainActivity)
+            textSize = 10f; typeface = Film.mono; letterSpacing = 0.08f; setTextColor(Ui.accent); maxLines = 1
+        })
+        titleRow.addView(titleCol, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        titleRow.addView(Film.iconButton(this, IconDrawable.Kind.FILM, "Công thức") { startActivity(Intent(this, PresetActivity::class.java)) },
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(50)).apply { rightMargin = dp(6) })
+        titleRow.addView(Film.iconButton(this, IconDrawable.Kind.SETTINGS, "Cài đặt") { startActivity(Intent(this, SettingsActivity::class.java)) },
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(50)).apply { rightMargin = dp(6) })
+        titleRow.addView(Film.iconButton(this, IconDrawable.Kind.FOLDER, "Mở file") { pick() },
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(50)))
         header.addView(titleRow)
+        header.addView(Film.sprockets(this), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(12)).apply { topMargin = dp(12) })
 
         // ----- Bộ lọc -----
         filterBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -496,7 +503,7 @@ class MainActivity : Activity() {
                     setPadding(dp(6), dp(1), dp(6), dp(2))
                 }
                 check = TextView(this@MainActivity).apply {
-                    text = "✓"; textSize = 14f; gravity = Gravity.CENTER; setTextColor(Color.WHITE)
+                    text = "✓"; textSize = 14f; gravity = Gravity.CENTER; setTextColor(Ui.onAccent)
                     background = Ui.rounded(this@MainActivity, Ui.accent, 12)
                 }
                 cell.addView(iv, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
@@ -520,7 +527,7 @@ class MainActivity : Activity() {
             qBadge.visibility = if (qText != null) View.VISIBLE else View.GONE
             val sel = item.id in selected
             check.visibility = if (sel) View.VISIBLE else View.GONE
-            cell.foreground = if (sel) Ui.rounded(this@MainActivity, Color.parseColor("#33E07A5F"), 0, Ui.accent) else null
+            cell.foreground = if (sel) Ui.rounded(this@MainActivity, Color.parseColor("#33F0A23B"), 0, Ui.accent) else null
             return cell
         }
     }

@@ -96,14 +96,14 @@ class EditActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(10), dp(10), dp(10), dp(6))
         }
-        bar.addView(Ui.button(this, "‹ Quay lại", false) { finish() },
-            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(40)))
+        bar.addView(Film.iconButton(this, IconDrawable.Kind.BACK, null) { finish() },
+            LinearLayout.LayoutParams(dp(44), dp(40)).apply { rightMargin = dp(10) })
         bar.addView(TextView(this).apply {
-            text = "Chỉnh ảnh"
+            text = "CHỈNH ẢNH"
             textSize = 17f
-            setTypeface(typeface, Typeface.BOLD)
+            typeface = Film.display
+            letterSpacing = 0.1f
             setTextColor(Ui.ink)
-            gravity = Gravity.CENTER
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         saveBtn = Ui.button(this, "Lưu ảnh", true) { save() }
         bar.addView(saveBtn, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(40)))
@@ -252,11 +252,8 @@ class EditActivity : Activity() {
         if (::zoom.isInitialized) zoom.release()
     }
 
-    private fun sectionTitle(t: String) = TextView(this).apply {
-        text = t.uppercase(); textSize = 11.5f; letterSpacing = 0.06f
-        setTypeface(typeface, Typeface.BOLD); setTextColor(Ui.accent)
-        setPadding(dp(2), dp(16), 0, dp(2))
-    }
+    private var sectionNo = 0
+    private fun sectionTitle(t: String) = Film.sectionHeader(this, ++sectionNo, t)
 
     private fun label() = TextView(this).apply {
         textSize = 13f; setTextColor(Ui.ink); setPadding(dp(2), dp(8), 0, 0)
@@ -311,8 +308,7 @@ class EditActivity : Activity() {
     private fun styleSkinChips() {
         skinChips.forEachIndexed { i, b ->
             val on = smooth == SoftSkin.appValue[i]
-            b.background = Ui.rounded(this, if (on) Ui.accent else Ui.field, 12, if (on) 0 else Ui.line)
-            b.setTextColor(if (on) Color.WHITE else Ui.ink)
+            Film.paintChip(this, b, on)
         }
     }
 

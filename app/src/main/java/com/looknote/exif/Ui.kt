@@ -20,15 +20,17 @@ import android.widget.Toast
 
 /** Màu sắc và các hàm dựng giao diện dùng chung. */
 object Ui {
-    // giao diện tối, chuẩn app ảnh: mắt đánh giá màu ảnh chính xác hơn
-    val bg = Color.parseColor("#121212")
-    val card = Color.parseColor("#1D1D1D")
-    val field = Color.parseColor("#262626")
-    val ink = Color.parseColor("#ECE8E1")
-    val mute = Color.parseColor("#9A948A")
-    val accent = Color.parseColor("#E07A5F")
-    val accentSoft = Color.parseColor("#2B201C")
-    val line = Color.parseColor("#353535")
+    // giao diện tối kiểu thân máy ảnh phim: đen ấm, chữ màu kem, điểm nhấn hổ phách như hộp phim.
+    // Nền gần trung tính để mắt vẫn đánh giá màu ảnh chính xác.
+    val bg = Color.parseColor("#141210")
+    val card = Color.parseColor("#1E1B17")
+    val field = Color.parseColor("#29251F")
+    val ink = Color.parseColor("#F2EADB")
+    val mute = Color.parseColor("#A0957F")
+    val accent = Color.parseColor("#F0A23B")
+    val onAccent = Color.parseColor("#1A140C")
+    val accentSoft = Color.parseColor("#33271A")
+    val line = Color.parseColor("#3D362C")
     val danger = Color.parseColor("#E5484D")
 
     /** Thanh trạng thái tối, chữ sáng. */
@@ -52,7 +54,10 @@ object Ui {
             isAllCaps = false
             textSize = 14f
             stateListAnimator = null
-            setTextColor(if (primary) Color.WHITE else ink)
+            minHeight = 0; minimumHeight = 0; minWidth = 0; minimumWidth = 0
+            maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+            typeface = Film.display; letterSpacing = 0.03f
+            setTextColor(if (primary) onAccent else ink)
             background = rounded(c, if (primary) accent else field, 12, if (primary) 0 else line)
             setPadding(dp(c, 14), 0, dp(c, 14), 0)
             setOnClickListener { onClick() }
@@ -70,12 +75,22 @@ object Ui {
         box.addView(TextView(c).apply {
             text = s.title.uppercase()
             textSize = 11.5f
-            letterSpacing = 0.06f
-            setTypeface(typeface, Typeface.BOLD)
+            letterSpacing = 0.14f
+            typeface = Film.display
             setTextColor(if (s.highlight) accent else mute)
             setPadding(0, 0, 0, dp(c, 4))
         })
         for ((k, v) in s.rows) {
+            // giá trị dài (lời khuyên): xếp dọc, canh trái cho dễ đọc
+            if (v.length > 24) {
+                box.addView(TextView(c).apply {
+                    text = k; textSize = 13f; setTextColor(mute); setPadding(0, dp(c, 7), 0, dp(c, 1))
+                })
+                box.addView(TextView(c).apply {
+                    text = v; textSize = 14f; setTextColor(ink); setLineSpacing(0f, 1.15f); setPadding(0, 0, 0, dp(c, 4))
+                })
+                continue
+            }
             val row = LinearLayout(c).apply {
                 orientation = LinearLayout.HORIZONTAL
                 setPadding(0, dp(c, 5), 0, dp(c, 5))
@@ -107,7 +122,7 @@ object Ui {
         top.addView(TextView(c).apply {
             text = info.name
             textSize = 15f
-            setTypeface(typeface, Typeface.BOLD)
+            typeface = Film.mono
             setTextColor(ink)
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         top.addView(button(c, "Sao chép", false) { copy(c, info.toText()) },
@@ -115,12 +130,8 @@ object Ui {
         card.addView(top)
         for (s in info.sections) card.addView(sectionView(c, s))
         if (info.note != null) {
-            card.addView(TextView(c).apply {
-                text = info.note
-                textSize = 13f
-                setTextColor(accent)
-                setPadding(0, dp(c, 10), 0, dp(c, 4))
-            })
+            card.addView(Film.banner(c, info.note), LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(c, 12) })
         }
         return card
     }

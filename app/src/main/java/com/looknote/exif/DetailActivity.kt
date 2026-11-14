@@ -52,22 +52,26 @@ class DetailActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(10), dp(10), dp(10), dp(6))
         }
-        bar.addView(Ui.button(this, "Lưới", false) { finish() },
-            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(40)))
+        bar.addView(Film.iconButton(this, IconDrawable.Kind.BACK, null) { finish() },
+            LinearLayout.LayoutParams(dp(44), dp(40)))
+        bar.addView(Film.iconButton(this, IconDrawable.Kind.PREV, null) { go(-1) },
+            LinearLayout.LayoutParams(dp(40), dp(40)).apply { leftMargin = dp(8) })
+        // bộ đếm khung kiểu máy phim
         counter = TextView(this).apply {
-            textSize = 14f
-            setTextColor(Ui.mute)
+            textSize = 13f
+            typeface = Film.mono
+            letterSpacing = 0.06f
+            setTextColor(Ui.accent)
             gravity = Gravity.CENTER
+            maxLines = 1
         }
         bar.addView(counter, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        bar.addView(Ui.button(this, "Chia sẻ", false) { shareCurrent() },
-            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(40)).apply { rightMargin = dp(6) })
-        bar.addView(Ui.button(this, "Chỉnh", true) { openEditor() },
-            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(40)).apply { rightMargin = dp(6) })
-        bar.addView(Ui.button(this, "‹", false) { go(-1) },
+        bar.addView(Film.iconButton(this, IconDrawable.Kind.NEXT, null) { go(1) },
+            LinearLayout.LayoutParams(dp(40), dp(40)).apply { rightMargin = dp(8) })
+        bar.addView(Film.iconButton(this, IconDrawable.Kind.SHARE, null) { shareCurrent() },
             LinearLayout.LayoutParams(dp(44), dp(40)).apply { rightMargin = dp(6) })
-        bar.addView(Ui.button(this, "›", false) { go(1) },
-            LinearLayout.LayoutParams(dp(44), dp(40)))
+        bar.addView(Ui.button(this, "Chỉnh", true) { openEditor() },
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(40)))
         root.addView(bar)
 
         // ----- Nội dung -----

@@ -164,7 +164,7 @@ object Processor {
         return Saved(saveJpeg(c, jpg, outName, "LookExif"), outName)
     }
 
-    private fun appVersion(c: Context): String =
+    fun appVersion(c: Context): String =
         try { c.packageManager.getPackageInfo(c.packageName, 0).versionName ?: "" } catch (e: Exception) { "" }
 
     /** Ghi JPEG vào Pictures/[dir] qua MediaStore. */

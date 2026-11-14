@@ -193,8 +193,8 @@ class LookGrid(
         // mã ô nhớ ở góc ảnh
         if (p != null && p.slot.isNotBlank()) {
             frame.addView(TextView(ctx).apply {
-                text = p.slot; textSize = 9.5f; setTypeface(typeface, Typeface.BOLD)
-                setTextColor(Color.WHITE)
+                text = p.slot; textSize = 9.5f; typeface = Film.mono
+                setTextColor(Ui.accent)
                 background = Ui.rounded(ctx, Color.parseColor("#99000000"), 4)
                 setPadding(dp(4), dp(1), dp(4), dp(1))
             }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.START).apply {
@@ -228,8 +228,7 @@ class LookGrid(
     }
 
     private fun paint(b: Button, on: Boolean) {
-        b.background = Ui.rounded(ctx, if (on) Ui.accent else Ui.field, 12, if (on) 0 else Ui.line)
-        b.setTextColor(if (on) Color.WHITE else Ui.ink)
+        Film.paintChip(ctx, b, on)
     }
 
     private fun prefs() = ctx.getSharedPreferences("settings", Context.MODE_PRIVATE)

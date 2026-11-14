@@ -42,10 +42,10 @@ class PresetActivity : Activity() {
         scroll.addView(col)
 
         val bar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        bar.addView(Ui.button(this, "‹ Quay lại", false) { finish() },
-            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(40)))
+        bar.addView(Film.iconButton(this, IconDrawable.Kind.BACK, null) { finish() },
+            LinearLayout.LayoutParams(dp(44), dp(40)))
         bar.addView(TextView(this).apply {
-            text = "Công thức màu"; textSize = 18f; setTypeface(typeface, Typeface.BOLD); setTextColor(Ui.ink)
+            text = "Công thức màu"; textSize = 17f; typeface = Film.display; letterSpacing = 0.08f; setTextColor(Ui.ink)
             setPadding(dp(12), 0, 0, 0)
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         col.addView(bar)

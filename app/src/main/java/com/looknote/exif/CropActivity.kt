@@ -369,8 +369,7 @@ class CropActivity : Activity() {
                     CropGeom.ratios.none { abs(it.second - spec.aspect) < 0.005f }
                 else -> abs(spec.aspect - a) < 0.005f
             }
-            btn.background = Ui.rounded(this, if (on) Ui.accent else Ui.field, 12, if (on) 0 else Ui.line)
-            btn.setTextColor(if (on) Color.WHITE else Ui.ink)
+            Film.paintChip(this, btn, on)
         }
     }
 
