@@ -79,5 +79,10 @@
             android:name=".PresetActivity"
             android:exported="false"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden" />
+
+        <activity
+            android:name=".ChartLookActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden" />
     </application>
 </manifest>
