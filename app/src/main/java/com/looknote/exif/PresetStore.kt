@@ -15,7 +15,10 @@ object PresetStore {
             val list = ArrayList<Preset>()
             for (i in 0 until arr.length()) {
                 val p = fromJson(arr.getJSONObject(i))
-                val q = Presets.renamed[p.name]?.let { p.copy(name = it) } ?: p
+                val q0 = Presets.renamed[p.name]?.let { p.copy(name = it) } ?: p
+                // M4 cũ (Shadows -9, AWB) → đúng thông số trên máy: Shadows -5, WB 8400K
+                val q = if (q0.slot == "M4" && q0.look == "FL" && q0.shadows == -9 && q0.wbNote == "AWB")
+                    q0.copy(shadows = -5, wbNote = "8400K", calib = null, calibSat = 1f, calibInv = null, calibFwd = null) else q0
                 // màu phim ước lượng: cập nhật tên theo bản mới (ghi rõ "ước lượng")
                 list += if (q.lutFile == "film:fuji_400h" || q.lutFile == "film:fuji_superia")
                     FilmLook.presets().firstOrNull { it.lutFile == q.lutFile }?.let { d -> q.copy(name = d.name) } ?: q else q

@@ -62,7 +62,8 @@ object Presets {
         floatArrayOf(-0.045f, 0.010f, 0.045f), floatArrayOf(0.030f, 0.008f, -0.020f)),
     Preset("M3", "Vàng nắng rực", "ST", 0, -1, -1, 2, 1, 3.0, 1.0, 0.3, "Daylight",
         floatArrayOf(0.010f, 0.004f, -0.015f), floatArrayOf(0.025f, 0.018f, -0.030f)),
-    Preset("M4", "Lạnh trầm cửa sổ", "FL", -1, -2, -9, 1, -2, -7.0, 2.0, 0.0, "AWB"),
+    // M4 theo thông số đọc từ ảnh chụp trên máy (15/11): Shadows -5, WB cố định 8400K, DRO Lv2
+    Preset("M4", "Lạnh trầm cửa sổ", "FL", -1, -2, -5, 1, -2, -7.0, 2.0, 0.0, "8400K"),
     // ---- bổ sung từ ảnh mẫu, đã lọc bỏ các công thức cho màu gần trùng ----
     // (B1, B2, B3 theo công thức kèm ảnh; B4–B6 ảnh không kèm công thức, thông số ước lượng)
     Preset("B1", "Tươi rõ tự nhiên", "NT", -2, -2, 2, 1, 5, 0.0, 0.0, 0.0, "5600K"),
