@@ -49,6 +49,7 @@ class EditActivity : Activity() {
     private val skinChips = ArrayList<Button>()
     private lateinit var invLabel: TextView
     private var invAmount = 100
+    private var invWb = false
     private lateinit var smoothBar: SeekBar
     private lateinit var skinShot: TextView
     private lateinit var cropInfo: TextView
@@ -181,6 +182,11 @@ class EditActivity : Activity() {
             setOnCheckedChangeListener { _, on -> invert = on; render() }
         }
         panel.addView(invertBox)
+        panel.addView(CheckBox(this).apply {
+            text = "Gỡ cả WB Shift lúc chụp (về ST tuyệt đối)"; setTextColor(Ui.ink); isChecked = false
+            setOnCheckedChangeListener { _, on -> invWb = on; render() }
+        })
+        panel.addView(small("Mặc định giữ WB Shift đã chỉnh trên máy (vd M2) vì đó là phần bù ánh sáng; gỡ đi ảnh có thể ám xanh lá hoặc ám theo đèn."))
         invLabel = label().apply { text = "Mức gỡ màu cũ: 100%" }
         panel.addView(invLabel)
         panel.addView(slider(150, 100, onChange = { invAmount = it; invLabel.text = "Mức gỡ màu cũ: $it%" }))
@@ -300,7 +306,8 @@ class EditActivity : Activity() {
         val b = base ?: return
         val inv = if (invertOn) srcPreset else null
         val amount = invAmount / 100f
-        val key = "${System.identityHashCode(b)}-${inv != null}-$invAmount"
+        val keepWb = !invWb
+        val key = "${System.identityHashCode(b)}-${inv != null}-$invAmount-$invWb"
         if (key == thumbKey) return
         thumbKey = key
         worker.execute {
@@ -308,7 +315,7 @@ class EditActivity : Activity() {
             val out = if (inv != null) {
                 val w = s.width; val h = s.height
                 val px = IntArray(w * h); s.getPixels(px, 0, w, 0, 0, w, h)
-                LookInverter(inv, amount).process(px)
+                LookInverter(inv, amount, keepWb).process(px)
                 Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888)
             } else s
             runOnUiThread { lookGrid.setSource(out) }
@@ -433,7 +440,7 @@ class EditActivity : Activity() {
 
     private fun options() = EditOptions(
         preset = if (selected >= 0) Presets.all[selected] else null,
-        strength = strength / 100f, ev = ev, invert = invertOn, invertStrength = invAmount / 100f,
+        strength = strength / 100f, ev = ev, invert = invertOn, invertStrength = invAmount / 100f, invertWb = invWb,
         smooth = smooth, blemish = blemish, defringe = defringe,
         crop = crop.takeIf { !it.isIdentity }
     )
@@ -455,7 +462,7 @@ class EditActivity : Activity() {
             if (o.defringe > 0) Defringe.process(px, w, 0, h, 0, Defringe.radiusFor(w), o.defringe / 100f, true)
             val d = skinDelta(b, px.copyOf())
             if (d != null) SkinRetouch.apply(d, px, w, h, 0, h)
-            if (inv != null) LookInverter(inv, o.invertStrength).process(px)
+            if (inv != null) LookInverter(inv, o.invertStrength, !o.invertWb).process(px)
             o.preset?.let { ColorEngine(it, o.ev, o.strength).process(px) }
             val out = Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888)
             runOnUiThread {

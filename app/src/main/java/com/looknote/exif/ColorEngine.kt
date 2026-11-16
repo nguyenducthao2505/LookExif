@@ -241,7 +241,7 @@ class ColorEngine(p: Preset, evOverride: Double = p.ev, private val strength: Fl
  * Gỡ ngược màu của công thức đã dùng lúc chụp (đọc từ EXIF), đưa ảnh về gần trung tính
  * trước khi áp công thức mới. Chỉ gần đúng: vùng đã cháy sáng hoặc bị dìm đen không lấy lại được.
  */
-class LookInverter(src0: Preset, private val amount: Float = 1f) {
+class LookInverter(src0: Preset, private val amount: Float = 1f, private val keepWb: Boolean = true) {
     /** Nếu đã hiệu chỉnh công thức này theo máy thật thì dùng đường cong học được. */
     private val cal = Presets.match(src0)
     private val src = src0
@@ -335,20 +335,14 @@ class LookInverter(src0: Preset, private val amount: Float = 1f) {
 
             if (cube3 != null) {
                 cube3.lookup(r, g, b, cubeOut)
-                val ri = (max(0f, min(1f, cubeOut[0])) * 255f + 0.5f).toInt()
-                val gi = (max(0f, min(1f, cubeOut[1])) * 255f + 0.5f).toInt()
-                val bi = (max(0f, min(1f, cubeOut[2])) * 255f + 0.5f).toInt()
-                px[i] = (a shl 24) or (ri shl 16) or (gi shl 8) or bi
+                px[i] = pack(a, cubeOut[0], cubeOut[1], cubeOut[2])
                 continue
             }
             if (calInv != null) {
                 val l0 = 0.299f * r + 0.587f * g + 0.114f * b
                 r = l0 + (r - l0) * calSatInv; g = l0 + (g - l0) * calSatInv; b = l0 + (b - l0) * calSatInv
                 r = calIn(0, r); g = calIn(1, g); b = calIn(2, b)
-                val ri = (max(0f, min(1f, r)) * 255f + 0.5f).toInt()
-                val gi = (max(0f, min(1f, g)) * 255f + 0.5f).toInt()
-                val bi = (max(0f, min(1f, b)) * 255f + 0.5f).toInt()
-                px[i] = (a shl 24) or (ri shl 16) or (gi shl 8) or bi
+                px[i] = pack(a, r, g, b)
                 continue
             }
 
@@ -369,11 +363,20 @@ class LookInverter(src0: Preset, private val amount: Float = 1f) {
             r = invCurve(r) / f.gainR
             g = invCurve(g) / f.gainG
             b = invCurve(b) / f.gainB
-
-            val ri = (max(0f, min(1f, r)) * 255f + 0.5f).toInt()
-            val gi = (max(0f, min(1f, g)) * 255f + 0.5f).toInt()
-            val bi = (max(0f, min(1f, b)) * 255f + 0.5f).toInt()
-            px[i] = (a shl 24) or (ri shl 16) or (gi shl 8) or bi
+            px[i] = pack(a, r, g, b)
         }
+    }
+
+    /**
+     * Ghi điểm ảnh. Mặc định giữ lại WB Shift lúc chụp (A/B, G/M): đó là phần chỉnh theo ánh sáng tại chỗ,
+     * không phải màu của công thức, nên khi đổi công thức không gỡ đi (gỡ đi sẽ hiện lại ám đèn, ví dụ ám xanh lá khi chụp M2).
+     */
+    private fun pack(a: Int, r0: Float, g0: Float, b0: Float): Int {
+        var r = r0; var g = g0; var b = b0
+        if (keepWb) { r *= f.gainR; g *= f.gainG; b *= f.gainB }
+        val ri = (max(0f, min(1f, r)) * 255f + 0.5f).toInt()
+        val gi = (max(0f, min(1f, g)) * 255f + 0.5f).toInt()
+        val bi = (max(0f, min(1f, b)) * 255f + 0.5f).toInt()
+        return (a shl 24) or (ri shl 16) or (gi shl 8) or bi
     }
 }

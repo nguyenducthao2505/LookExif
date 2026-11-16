@@ -59,6 +59,8 @@ data class EditOptions(
     val invert: Boolean = false,
     /** Mức gỡ màu cũ 0..1,5. */
     val invertStrength: Float = 1f,
+    /** Gỡ cả WB Shift lúc chụp (mặc định giữ lại). */
+    val invertWb: Boolean = false,
     val smooth: Int = 0,
     val blemish: Boolean = false,
     /** Xóa viền tím 0..100. */
@@ -99,7 +101,7 @@ object Processor {
         val rows = 256
         val buf = IntArray(w * rows)
         val engine = o.preset?.let { ColorEngine(it, o.ev, o.strength) }
-        val inverter = src?.let { LookInverter(it, o.invertStrength) }
+        val inverter = src?.let { LookInverter(it, o.invertStrength, !o.invertWb) }
         // lượt 1: xóa viền tím ở độ phân giải đầy đủ (cần đọc thêm vài dòng đệm trên/dưới)
         if (o.defringe > 0) {
             val r = Defringe.radiusFor(w)
