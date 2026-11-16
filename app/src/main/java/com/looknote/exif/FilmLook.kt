@@ -92,6 +92,7 @@ object FilmLook {
         neutral("fujic_5", "Fuji C5 · Classic Negative"),
         neutral("fujic_6", "Fuji C6 · Nostalgic Family"),
         neutral("fujic_7", "Fuji C7 · Acros Portrait"),
+        neutral("sony_pp7", "PP7 Classic Neg · da châu Á"),
         // ---------------- Canon (màu da trắng hồng) ----------------
         Spec("canon_std", "Canon Tiêu chuẩn", f(1.015f, 0.995f, 0.985f), 0.38f, 1.0f,
             f(0.012f, 0.01f, 0.012f), f(0.995f, 0.99f, 0.985f), 1.18f,
@@ -415,7 +416,8 @@ object FilmLook {
         val o = FloatArray(3)
         var k = 0
         for (bi in 0 until n) for (gi in 0 until n) for (ri in 0 until n) {
-            if (fit != null) {
+            if (id == "sony_pp7") ppClassicNeg(ri / (n - 1f), gi / (n - 1f), bi / (n - 1f), o)
+            else if (fit != null) {
                 val lab = fitLab(fit, toLab(ri / (n - 1.0), gi / (n - 1.0), bi / (n - 1.0)))
                 val rgb = fromLab(lab[0], lab[1], lab[2])
                 o[0] = rgb[0].toFloat(); o[1] = rgb[1].toFloat(); o[2] = rgb[2].toFloat()
@@ -426,11 +428,57 @@ object FilmLook {
         return Lut(n, data, floatArrayOf(0f, 0f, 0f), floatArrayOf(1f, 1f, 1f))
     }
 
+    /**
+     * Mô phỏng Picture Profile "Classic Neg · da châu Á" (PP7 + MR) cho ảnh chụp ST, mọi thông số 0, AWB.
+     * Dựng từ thông số (chưa đo đối chứng trên máy): Black Level +2, Gamma Still, Black Gamma Narrow −2,
+     * Knee Manual 87% / Slope −2, Color Mode Still, Saturation −5, Color Depth R+1 G0 B+1 C+3 M0 Y−3,
+     * WB AWB-W (trắng ưu tiên, lạnh hơn AWB một chút) + WB Shift M1.5.
+     */
+    private fun ppClassicNeg(r0: Float, g0: Float, b0: Float, o: FloatArray) {
+        // 1. cân bằng trắng: AWB-W lạnh hơn AWB nhẹ, M1.5 (≈2%/nấc như phần WB Shift của app)
+        val gr = 0.985; val gg = 1.0 - 0.02 * 1.5; val gb = 1.02
+        val norm = 0.2126 * gr + 0.7152 * gg + 0.0722 * gb
+        val lin = doubleArrayOf(LabMath.lin(r0.toDouble()) * gr / norm, LabMath.lin(g0.toDouble()) * gg / norm, LabMath.lin(b0.toDouble()) * gb / norm)
+        val v = DoubleArray(3) { LabMath.gam(lin[it].coerceIn(0.0, 1.0)) }
+        for (c in 0..2) {
+            var x = v[c]
+            // 2. Black Gamma Narrow −2: chỉ dìm phần tối sâu (< 15%)
+            if (x < 0.15) { val t = 1 - x / 0.15; x -= 0.085 * x * t * t }
+            // 3. Black Level +2: nâng điểm đen rất nhẹ
+            x += 0.005 * (1 - x)
+            // 4. Knee 87%, Slope −2: nén vùng sáng trên 87%, giữ chi tiết da và mây
+            if (x > 0.87) x = 0.87 + (x - 0.87) * 0.86
+            v[c] = x.coerceIn(0.0, 1.0)
+        }
+        val lab = LabMath.toLab(v[0], v[1], v[2])
+        var l = lab[0]; var a = lab[1]; var b = lab[2]
+        val ch = kotlin.math.hypot(a, b)
+        if (ch > 0.5) {
+            val h = Math.toDegrees(kotlin.math.atan2(b, a)).let { if (it < 0) it + 360 else it }
+            // 5. Color Depth: + đậm và tối hơn, − nhạt và sáng hơn theo từng vùng màu
+            var dl = 0.0; var dc = 0.0
+            for ((center, depth) in listOf(40.0 to 1.0, 100.0 to -3.0, 135.0 to 0.0, 200.0 to 3.0, 290.0 to 1.0, 330.0 to 0.0)) {
+                if (depth == 0.0) continue
+                var d = kotlin.math.abs(h - center); if (d > 180) d = 360 - d
+                if (d >= 50) continue
+                val w = 0.5 * (1 + kotlin.math.cos(Math.PI * d / 50))
+                dl -= 1.2 * depth * w; dc += 0.04 * depth * w
+            }
+            val cw = (ch / 40.0).coerceIn(0.0, 1.0)
+            l += dl * cw
+            // 6. Saturation −5 (thang ±32)
+            val k = (1 + dc) * (1 - 5 * 0.012)
+            a *= k; b *= k
+        }
+        val rgb = LabMath.fromLab(l.coerceIn(0.0, 100.0), a, b)
+        o[0] = rgb[0].toFloat(); o[1] = rgb[1].toFloat(); o[2] = rgb[2].toFloat()
+    }
+
     /** Các công thức màu phim đưa vào danh sách (mã lưu dạng "film:<id>"). */
     fun presets(): List<Preset> {
         var nf = 0; var nk = 0; var nc = 0
         return specs.map { s ->
-        Preset(when { s.id.startsWith("fujic_") -> "FC" + s.id.substringAfter("_"); s.id.startsWith("fuji") -> "F${++nf}"; s.id.startsWith("canon") -> "C${++nc}"; else -> "K${++nk}" }, s.name, "FILM", 0, 0, 0, 0, 0, 0.0, 0.0, 0.0, "",
+        Preset(when { s.id == "sony_pp7" -> "PP7"; s.id.startsWith("fujic_") -> "FC" + s.id.substringAfter("_"); s.id.startsWith("fuji") -> "F${++nf}"; s.id.startsWith("canon") -> "C${++nc}"; else -> "K${++nk}" }, s.name, "FILM", 0, 0, 0, 0, 0, 0.0, 0.0, 0.0, "",
             lutFile = "film:" + s.id)
         }
     }

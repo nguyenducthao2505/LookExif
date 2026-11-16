@@ -138,6 +138,7 @@ class LookGrid(
             f.startsWith("film:fuji") -> Group.FUJI
             f.startsWith("film:kodak") -> Group.REF
             f.startsWith("film:canon") -> Group.CANON
+            f.startsWith("film:sony") -> Group.CAM
             f.startsWith("film:") -> Group.LUT
             else -> Group.LUT
         }
