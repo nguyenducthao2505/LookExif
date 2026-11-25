@@ -21,6 +21,17 @@ Trong màn **Chỉnh ảnh**, mục **Tự động AI**:
 - **Match màu ảnh mẫu:** học tông sáng, màu nền và màu da của một ảnh bạn thích; da xử lý riêng nên không bị nhuộm màu nền. Ảnh mẫu được nhớ để dùng trong **Chỉnh hàng loạt**.
 - **Chỉnh hàng loạt:** mỗi ảnh được tính riêng (ảnh tối kéo sáng, ảnh sáng hạ xuống), nên cả bộ ảnh đều màu.
 
+### Nâng cấp v1.27
+
+- **Da AI thật:** MediaPipe Selfie Multiclass phân lớp da mặt / da người / tóc / áo / nền; người nhỏ trong ảnh toàn thân hay ảnh nhóm được phân tích thêm trên vùng cắt quanh mặt. Máy không chạy được thì tự lùi về ML Kit.
+- **Đồng bộ cả bộ ảnh** (Chỉnh hàng loạt): quét cả bộ trước, đưa độ sáng da và màu da mọi ảnh về một mức chung; người khác kiểu da không bị ép theo.
+- **Học gu riêng:** ★ Học gu từ ảnh đẹp — chọn 10–20 ảnh, app học độ sáng da, tông, độ đậm và độ sáng cảnh để làm mục tiêu cho nút Tự động.
+- **Match ảnh mẫu theo vùng:** riêng vùng tối, trung tính, vùng sáng, cây lá và trời.
+- **Thông số Sony:** cân sáng theo người được lấy nét (ảnh nhóm), tôn trọng WB Shift A/B đã đặt, giữ vùng sáng kỹ hơn khi máy bật DRO/HDR.
+- **Ngược sáng:** nhận ra nền sáng hơn mặt nhiều, nâng riêng người, giữ trời và nền.
+
+Mô hình `selfie_multiclass_256x256.tflite` được workflow tải về lúc build (không cần để trong repo).
+
 ## Build APK bằng GitHub Actions
 
 1. Tạo repo mới trên GitHub, ví dụ `LookExif`.
