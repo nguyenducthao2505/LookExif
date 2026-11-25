@@ -66,7 +66,9 @@ data class EditOptions(
     /** Xóa viền tím 0..100. */
     val defringe: Int = 0,
     /** Cắt / xoay khi lưu (null = giữ nguyên khung). */
-    val crop: CropSpec? = null
+    val crop: CropSpec? = null,
+    /** Chuẩn hóa sáng, màu da tự động, match ảnh mẫu. */
+    val auto: AutoParams = AutoParams()
 ) {
     val skin get() = smooth > 0 || blemish
 }
@@ -78,8 +80,9 @@ object Processor {
 
     /**
      * @param delta0 độ lệch làm da đã tính sẵn (từ màn chỉnh); null thì tự tính khi cần
+     * @param grade0 bảng chỉnh tự động đã tính sẵn; null thì tự tính khi cần (chỉnh hàng loạt: mỗi ảnh tính riêng)
      */
-    fun processAndSave(c: Context, uri: Uri, o: EditOptions, delta0: SkinRetouch.Delta? = null): Saved {
+    fun processAndSave(c: Context, uri: Uri, o: EditOptions, delta0: SkinRetouch.Delta? = null, grade0: AutoGrade? = null): Saved {
         val head = Ui.readHead(c, uri, 512 * 1024)
         val orient = PhotoInfoBuilder.build("", head).orientation
         val src = if (o.invert && !SourceCheck.check(head).builtColor) PhotoInfoBuilder.sourcePreset(head)?.takeIf { it.look != "BW" && it.look != "SE" } else null
@@ -93,6 +96,8 @@ object Processor {
             delta = SkinRetouch.compute(px, prev.width, prev.height, faces, o.smooth / 100f, o.blemish)
             prev.recycle()
         }
+
+        val grade = grade0 ?: if (o.auto.on) previewGrade(c, uri, o, orient, src, delta) else null
 
         val maxW = if (AppSettings.fullRes(c)) 12000 else 4000
         val full = Ui.decodeMax(c, uri, maxW, orient) ?: throw IllegalStateException("không giải mã được ảnh")
@@ -125,6 +130,7 @@ object Processor {
             if (delta != null) SkinRetouch.apply(delta, buf, w, h, y, hh)
             inverter?.process(buf, 0, w * hh)
             engine?.process(buf, 0, w * hh)
+            grade?.apply(buf, w, h, y, hh)
             work.setPixels(buf, 0, w, 0, y, w, hh)
             y += hh
         }
@@ -160,10 +166,31 @@ object Processor {
 
         val baseName = Ui.displayName(c, uri).substringBeforeLast('.')
         val tag = listOfNotNull(if (src != null) "doi" else null, o.preset?.slot?.ifBlank { null },
-            if (delta != null) "da" else null, if (o.defringe > 0) "vien" else null,
+            if (delta != null) "da" else null, if (grade != null && !grade.isIdentity) "auto" else null,
+            if (o.defringe > 0) "vien" else null,
             if (o.crop != null && !o.crop.isIdentity) "cat" else null).joinToString("-").ifBlank { "chinh" }
         val outName = "${baseName}_LX-$tag.jpg"
         return Saved(saveJpeg(c, jpg, outName, "LookExif"), outName)
+    }
+
+    /**
+     * Tính bảng chỉnh tự động trên ảnh xem trước ~1800px đã qua đúng các bước trước đó,
+     * để mỗi ảnh (kể cả khi chỉnh hàng loạt) được cân sáng và chỉnh da theo chính nó.
+     */
+    fun previewGrade(c: Context, uri: Uri, o: EditOptions, orient: Int, src: Preset?, delta: SkinRetouch.Delta?): AutoGrade {
+        val prev = Ui.decodeMax(c, uri, 1800, orient) ?: throw IllegalStateException("không mở được ảnh")
+        val faces = try { FaceFinder.detect(prev) } catch (t: Throwable) { emptyList() }
+        val map = SkinMap.build(prev, faces)
+        val w = prev.width; val h = prev.height
+        val px = IntArray(w * h)
+        prev.getPixels(px, 0, w, 0, 0, w, h)
+        prev.recycle()
+        if (o.defringe > 0) Defringe.process(px, w, 0, h, 0, Defringe.radiusFor(w), o.defringe / 100f, true)
+        val d = delta ?: if (o.skin) SkinRetouch.compute(px.copyOf(), w, h, faces, o.smooth / 100f, o.blemish) else null
+        if (d != null) SkinRetouch.apply(d, px, w, h, 0, h)
+        src?.let { LookInverter(it, o.invertStrength, !o.invertWb).process(px) }
+        o.preset?.let { ColorEngine(it, o.ev, o.strength).process(px) }
+        return AutoGrade.compute(px, w, h, map.takeIf { faces.isNotEmpty() || it.usedPerson }, o.auto)
     }
 
     fun appVersion(c: Context): String =

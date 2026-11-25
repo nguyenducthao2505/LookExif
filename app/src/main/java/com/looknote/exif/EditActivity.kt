@@ -78,6 +78,25 @@ class EditActivity : Activity() {
     private var delta: SkinRetouch.Delta? = null
     private val worker = Executors.newSingleThreadExecutor()
 
+    // ----- tự động (AI) -----
+    private var light = 0
+    private var skinTone = 0
+    private var refAmount = 0
+    private var ref: ColorStats? = null
+    private var skinMap: SkinMap? = null
+    private var skinMapOn = false
+    private var gradeKey = ""
+    private var grade: AutoGrade? = null
+    private lateinit var autoInfo: TextView
+    private lateinit var lightLabel: TextView
+    private lateinit var toneLabel: TextView
+    private lateinit var refLabel: TextView
+    private lateinit var refInfo: TextView
+    private lateinit var lightBar: SeekBar
+    private lateinit var toneBar: SeekBar
+    private lateinit var refBar: SeekBar
+    private lateinit var mapBtn: Button
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Ui.darkBars(this)
@@ -140,6 +159,32 @@ class EditActivity : Activity() {
         panel.addView(cropRow)
         cropInfo = small("Chưa cắt / xoay")
         panel.addView(cropInfo)
+
+        // --- Tự động (AI) ---
+        panel.addView(sectionTitle("Tự động AI"))
+        autoInfo = small("Đang dựng bản đồ da...")
+        panel.addView(autoInfo)
+        val autoRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        autoRow.addView(Ui.button(this, "✦ Tự động", true) { autoOneTap() }, LinearLayout.LayoutParams(0, dp(38), 1f).apply { rightMargin = dp(6) })
+        mapBtn = Ui.button(this, "Bản đồ da: Tắt", false) { toggleSkinMap() }
+        autoRow.addView(mapBtn, LinearLayout.LayoutParams(0, dp(38), 1f).apply { rightMargin = dp(6) })
+        autoRow.addView(Ui.button(this, "Đặt lại", false) { setAuto(0, 0); render() }, LinearLayout.LayoutParams(0, dp(38), 0.8f))
+        panel.addView(autoRow)
+        lightLabel = label(); panel.addView(lightLabel)
+        lightBar = slider(100, 0, onChange = { light = it; updateLabels() }); panel.addView(lightBar)
+        panel.addView(small("Cân sáng theo da mặt: ảnh thiếu/thừa sáng về cùng một mức, da ngăm giữ độ sâu, vùng sáng không bị cháy."))
+        toneLabel = label(); panel.addView(toneLabel)
+        toneBar = slider(100, 0, onChange = { skinTone = it; updateLabels() }); panel.addView(toneBar)
+        panel.addView(small("Chỉ chỉnh trong bản đồ da: bớt ửng đỏ / vàng xỉn, đều màu da; da sáng không bị hồng quá, da ngăm không bị bệch. Áo, tóc, nền giữ nguyên."))
+        val refRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        refRow.addView(Ui.button(this, "🖼 Chọn ảnh mẫu", false) { pickRef() }, LinearLayout.LayoutParams(0, dp(38), 1.4f).apply { rightMargin = dp(6) })
+        refRow.addView(Ui.button(this, "Bỏ ảnh mẫu", false) { clearRef() }, LinearLayout.LayoutParams(0, dp(38), 1f))
+        panel.addView(refRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
+        refInfo = small(""); panel.addView(refInfo)
+        refLabel = label(); panel.addView(refLabel)
+        refBar = slider(100, 0, onChange = { refAmount = it; updateLabels() }); panel.addView(refBar)
+        ref = RefStore.load(this)
+        showRef()
 
         // --- Ống kính ---
         panel.addView(sectionTitle("Ống kính"))
@@ -285,6 +330,9 @@ class EditActivity : Activity() {
         evLabel.text = "Độ sáng: $e EV"
         smoothLabel.text = "Mịn da: $smooth" + (if (smooth > 0) " (≈ máy: ${SoftSkin.names[SoftSkin.levelOf(smooth)]})" else "")
         fringeLabel.text = "Xóa viền tím / xanh lá: $defringe%"
+        lightLabel.text = "Chuẩn hóa ánh sáng: $light%"
+        toneLabel.text = "Màu da tự động: $skinTone%"
+        refLabel.text = if (ref == null) "Match màu ảnh mẫu: chưa chọn ảnh" else "Mức giống ảnh mẫu: $refAmount%"
         summary.text = if (selected < 0) "Chưa áp màu mới. Chạm vào một ô màu ở trên."
         else Presets.all[selected].summary()
     }
@@ -344,6 +392,7 @@ class EditActivity : Activity() {
 
     private fun toggleClip() {
         clipOn = !clipOn
+        if (clipOn && skinMapOn) { skinMapOn = false; mapBtn.text = "Bản đồ da: Tắt" }
         clipBtn.text = if (clipOn) "Vùng cháy: Bật" else "Vùng cháy: Tắt"
         refreshClip(shownBmp ?: base)
     }
@@ -353,12 +402,18 @@ class EditActivity : Activity() {
         val w = b.width; val h = b.height
         val px = IntArray(w * h); b.getPixels(px, 0, w, 0, 0, w, h)
         histView.setData(Analysis.histogram(px))
-        zoom.setOverlay(if (clipOn) Bitmap.createBitmap(Analysis.clipMask(px), w, h, Bitmap.Config.ARGB_8888) else null)
+        val sm = skinMap
+        zoom.setOverlay(when {
+            clipOn -> Bitmap.createBitmap(Analysis.clipMask(px), w, h, Bitmap.Config.ARGB_8888)
+            skinMapOn && sm != null -> try { Crop.apply(sm.overlay(), crop) } catch (t: Throwable) { sm.overlay() }
+            else -> null
+        })
     }
 
     private val skinOn get() = smooth > 0 || blemish
     private val invertOn get() = invert && srcPreset != null
-    private val colorEdit get() = skinOn || selected >= 0 || invertOn || defringe > 0
+    private val autoParams get() = AutoParams(light, skinTone, if (ref != null) refAmount else 0, ref)
+    private val colorEdit get() = skinOn || selected >= 0 || invertOn || defringe > 0 || autoParams.on
     private val anyEdit get() = colorEdit || !crop.isIdentity
 
     private fun loadBase() {
@@ -419,10 +474,18 @@ class EditActivity : Activity() {
             if (b != null) {
                 val f = try { FaceFinder.detect(b) } catch (e: Throwable) { emptyList() }
                 faces = f
+                val sm = try { SkinMap.build(b, f) } catch (e: Throwable) { null }
+                skinMap = sm?.takeIf { f.isNotEmpty() || it.usedPerson }
                 runOnUiThread {
+                    val m = skinMap
+                    autoInfo.text = when {
+                        m == null -> "Không thấy người trong ảnh: chuẩn hóa sáng theo cả ảnh, không chỉnh da."
+                        m.usedPerson -> "Bản đồ da AI: tách người khỏi nền + màu da lấy mẫu ở má (${"%.1f".format(m.coverage * 100)}% ảnh là da)."
+                        else -> "Bản đồ da: theo vùng quanh khuôn mặt (máy không chạy được tách người)."
+                    }
                     faceInfo.text = if (f.isEmpty()) "Không thấy khuôn mặt: chỉ làm mịn nhẹ theo màu da, không xóa mụn."
                     else "Tìm thấy ${f.size} khuôn mặt. Mắt, lông mày, môi và sợi tóc được giữ nguyên nét."
-                    if (skinOn) render()
+                    if (skinOn || autoParams.on) render()
                 }
             }
         }
@@ -442,8 +505,77 @@ class EditActivity : Activity() {
         preset = if (selected >= 0) Presets.all[selected] else null,
         strength = strength / 100f, ev = ev, invert = invertOn, invertStrength = invAmount / 100f, invertWb = invWb,
         smooth = smooth, blemish = blemish, defringe = defringe,
-        crop = crop.takeIf { !it.isIdentity }
+        crop = crop.takeIf { !it.isIdentity },
+        auto = autoParams
     )
+
+    /** Chạy đúng các bước chỉnh trên ảnh xem trước; trả về ảnh đã chỉnh (chưa áp tự động) và bảng tự động. */
+    private fun gradeFor(b: Bitmap, px: IntArray, o: EditOptions): AutoGrade? {
+        if (!o.auto.on) return null
+        val m = skinMap
+        val key = "${o.preset?.slot}-${o.preset?.name}-${o.strength}-${o.ev}-${o.invert}-${o.invertStrength}-${o.invertWb}-" +
+            "${o.smooth}-${o.blemish}-${o.defringe}-${o.auto.key()}-${System.identityHashCode(m)}-${System.identityHashCode(b)}"
+        if (key == gradeKey && grade != null) return grade
+        val g = AutoGrade.compute(px, b.width, b.height, m, o.auto)
+        grade = g; gradeKey = key
+        runOnUiThread { if (g.note.isNotBlank()) autoInfo.text = "Tự động: " + g.note }
+        return g
+    }
+
+    /** Ảnh xem trước qua các bước trước bước tự động. */
+    private fun upstream(b: Bitmap, o: EditOptions, inv: Preset?): IntArray {
+        val w = b.width; val h = b.height
+        val px = IntArray(w * h)
+        b.getPixels(px, 0, w, 0, 0, w, h)
+        if (o.defringe > 0) Defringe.process(px, w, 0, h, 0, Defringe.radiusFor(w), o.defringe / 100f, true)
+        val d = skinDelta(b, px.copyOf())
+        if (d != null) SkinRetouch.apply(d, px, w, h, 0, h)
+        if (inv != null) LookInverter(inv, o.invertStrength, !o.invertWb).process(px)
+        o.preset?.let { ColorEngine(it, o.ev, o.strength).process(px) }
+        return px
+    }
+
+    private fun setAuto(l: Int, t: Int) {
+        light = l; skinTone = t
+        lightBar.progress = l; toneBar.progress = t
+        updateLabels()
+    }
+
+    /** Một chạm: cân sáng + chỉnh da; nếu có ảnh mẫu thì giống mẫu 80%. */
+    private fun autoOneTap() {
+        setAuto(70, 75)
+        if (ref != null && refAmount == 0) { refAmount = 80; refBar.progress = 80; updateLabels() }
+        render()
+    }
+
+    private fun toggleSkinMap() {
+        val m = skinMap
+        if (m == null) { Ui.toast(this, "Chưa có bản đồ da (không thấy người hoặc đang dựng)"); return }
+        skinMapOn = !skinMapOn
+        mapBtn.text = if (skinMapOn) "Bản đồ da: Bật" else "Bản đồ da: Tắt"
+        if (skinMapOn && clipOn) { clipOn = false; clipBtn.text = "Vùng cháy: Tắt" }
+        refreshClip(shownBmp ?: base)
+    }
+
+    private fun pickRef() {
+        val i = Intent(Intent.ACTION_GET_CONTENT).apply { type = "image/*"; addCategory(Intent.CATEGORY_OPENABLE) }
+        try { startActivityForResult(Intent.createChooser(i, "Chọn ảnh mẫu"), REQ_REF) }
+        catch (e: Exception) { Ui.toast(this, "Không mở được thư viện ảnh") }
+    }
+
+    private fun clearRef() {
+        ref = null; refAmount = 0; refBar.progress = 0
+        RefStore.save(this, null)
+        showRef(); updateLabels(); render()
+    }
+
+    private fun showRef() {
+        val r = ref
+        refInfo.text = if (r == null) "Chọn một ảnh có màu bạn thích (ảnh của mình hoặc ảnh tham khảo). App học tông sáng, màu nền và màu da của ảnh đó rồi áp sang ảnh này; da được xử lý riêng nên không bị nhuộm màu nền."
+        else "Ảnh mẫu: ${r.name.ifBlank { "(không tên)" }}" + (if (r.skin != null) " · có da người, da sẽ theo da ảnh mẫu" else " · không có người, da giữ màu riêng") +
+            ". Ảnh mẫu được nhớ cho cả chỉnh hàng loạt."
+        refBar.isEnabled = r != null
+    }
 
     private fun render() {
         val b = base ?: return
@@ -457,13 +589,8 @@ class EditActivity : Activity() {
         worker.execute {
             if (my != token) return@execute
             val w = b.width; val h = b.height
-            val px = IntArray(w * h)
-            b.getPixels(px, 0, w, 0, 0, w, h)
-            if (o.defringe > 0) Defringe.process(px, w, 0, h, 0, Defringe.radiusFor(w), o.defringe / 100f, true)
-            val d = skinDelta(b, px.copyOf())
-            if (d != null) SkinRetouch.apply(d, px, w, h, 0, h)
-            if (inv != null) LookInverter(inv, o.invertStrength, !o.invertWb).process(px)
-            o.preset?.let { ColorEngine(it, o.ev, o.strength).process(px) }
+            val px = upstream(b, o, inv)
+            gradeFor(b, px, o)?.apply(px, w, h, 0, h)
             val out = Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888)
             runOnUiThread {
                 if (my != token) return@runOnUiThread
@@ -486,7 +613,8 @@ class EditActivity : Activity() {
                 val bpx = IntArray(b.width * b.height)
                 b.getPixels(bpx, 0, b.width, 0, 0, b.width, b.height)
                 val d = skinDelta(b, bpx)
-                saved = Processor.processAndSave(this, uri, o, d)
+                val g = if (o.auto.on) gradeFor(b, upstream(b, o, if (invertOn) srcPreset else null), o) else null
+                saved = Processor.processAndSave(this, uri, o, d, g)
                 "Đã lưu: Pictures/LookExif/${saved!!.name}"
             } catch (t: Throwable) {
                 if (t is OutOfMemoryError) "Không đủ bộ nhớ để lưu đủ độ phân giải. Chọn lưu 8MP trong Cài đặt."
@@ -537,6 +665,20 @@ class EditActivity : Activity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQ_REF && resultCode == RESULT_OK) {
+            val u = data?.data ?: return
+            refInfo.text = "Đang đọc ảnh mẫu..."
+            worker.execute {
+                val st = try { RefStore.measure(this, u) } catch (t: Throwable) { null }
+                runOnUiThread {
+                    if (st == null) { Ui.toast(this, "Không đọc được ảnh mẫu"); showRef(); return@runOnUiThread }
+                    ref = st; RefStore.save(this, st)
+                    refAmount = 80; refBar.progress = 80
+                    showRef(); updateLabels(); render()
+                }
+            }
+            return
+        }
         if (requestCode == REQ_CROP) {
             if (resultCode == RESULT_OK) CropBridge.result?.let { crop = it }
             CropBridge.preview = null; CropBridge.result = null
@@ -561,5 +703,5 @@ class EditActivity : Activity() {
 
     private fun dp(v: Int) = Ui.dp(this, v)
 
-    companion object { private const val REQ_CROP = 71 }
+    companion object { private const val REQ_CROP = 71; private const val REQ_REF = 72 }
 }

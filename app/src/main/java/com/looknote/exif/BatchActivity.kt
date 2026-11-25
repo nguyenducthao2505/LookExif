@@ -26,6 +26,10 @@ class BatchActivity : Activity() {
     private var defringe = 0
     private var blemish = false
     private var invert = true
+    private var light = 0
+    private var skinTone = 0
+    private var useRef = false
+    private var ref: ColorStats? = null
     @Volatile private var running = false
     @Volatile private var cancel = false
 
@@ -56,6 +60,24 @@ class BatchActivity : Activity() {
             typeface = Film.display; letterSpacing = 0.08f; setTextColor(Ui.ink); setPadding(dp(12), 0, 0, 0)
         })
         col.addView(bar)
+
+        col.addView(title("Tự động AI"))
+        col.addView(TextView(this).apply {
+            text = "Mỗi ảnh được tính riêng: ảnh tối được kéo sáng, ảnh sáng được hạ xuống, da chỉnh theo chính khuôn mặt trong ảnh — cả bộ ảnh đều màu nhau."
+            textSize = 12f; setTextColor(Ui.mute)
+        })
+        col.addView(TextView(this).apply { text = "Chuẩn hóa ánh sáng"; textSize = 13f; setTextColor(Ui.ink); setPadding(0, dp(8), 0, 0) })
+        col.addView(slider(0) { light = it; updateLabels() })
+        col.addView(TextView(this).apply { text = "Màu da tự động"; textSize = 13f; setTextColor(Ui.ink) })
+        col.addView(slider(0) { skinTone = it; updateLabels() })
+        ref = RefStore.load(this)
+        col.addView(CheckBox(this).apply {
+            val r = ref
+            text = if (r != null) "Match màu theo ảnh mẫu (${r.name.ifBlank { "đã chọn" }}, 80%)" else "Match màu theo ảnh mẫu (chọn ảnh mẫu trong màn Chỉnh ảnh trước)"
+            isEnabled = r != null
+            setTextColor(Ui.ink)
+            setOnCheckedChangeListener { _, on -> useRef = on; updateLabels() }
+        })
 
         col.addView(title("Ống kính"))
         col.addView(slider(0) { defringe = it; updateLabels() })
@@ -138,7 +160,9 @@ class BatchActivity : Activity() {
 
     private fun updateLabels() {
         val color = if (selected >= 0) Presets.all[selected].let { "${it.slot} ${it.name}, độ mạnh $strength%" } else "không đổi màu"
-        labels.text = "Xóa viền tím $defringe% · Mịn da $smooth${if (smooth > 0) " (≈ ${SoftSkin.names[SoftSkin.levelOf(smooth)]})" else ""} · Màu: $color.\n" +
+        val auto = listOfNotNull(if (light > 0) "sáng $light%" else null, if (skinTone > 0) "da $skinTone%" else null,
+            if (useRef && ref != null) "ảnh mẫu 80%" else null).joinToString(", ").ifBlank { "tắt" }
+        labels.text = "Tự động: $auto · Xóa viền tím $defringe% · Mịn da $smooth${if (smooth > 0) " (≈ ${SoftSkin.names[SoftSkin.levelOf(smooth)]})" else ""} · Màu: $color.\n" +
             "Mỗi ảnh lưu thành file mới trong Pictures/LookExif, ảnh gốc giữ nguyên."
     }
 
@@ -146,9 +170,10 @@ class BatchActivity : Activity() {
         val o = EditOptions(
             preset = if (selected >= 0) Presets.all[selected] else null,
             strength = strength / 100f, invert = invert,
-            smooth = smooth, blemish = blemish, defringe = defringe
+            smooth = smooth, blemish = blemish, defringe = defringe,
+            auto = AutoParams(light, skinTone, if (useRef && ref != null) 80 else 0, ref)
         )
-        if (o.preset == null && !o.skin && o.defringe == 0 && !o.invert) {
+        if (o.preset == null && !o.skin && o.defringe == 0 && !o.invert && !o.auto.on) {
             Ui.toast(this, "Chưa chọn chỉnh sửa nào"); return
         }
         running = true; cancel = false
