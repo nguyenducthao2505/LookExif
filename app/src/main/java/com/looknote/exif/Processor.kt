@@ -97,7 +97,7 @@ object Processor {
             prev.recycle()
         }
 
-        val grade = grade0 ?: if (o.auto.on) previewGrade(c, uri, o, orient, src, delta) else null
+        val grade = grade0 ?: if (o.auto.on) previewGrade(c, uri, o.copy(auto = o.auto.copy(hints = SonyHints.read(head, orient))), orient, src, delta) else null
 
         val maxW = if (AppSettings.fullRes(c)) 12000 else 4000
         val full = Ui.decodeMax(c, uri, maxW, orient) ?: throw IllegalStateException("không giải mã được ảnh")
@@ -178,9 +178,17 @@ object Processor {
      * để mỗi ảnh (kể cả khi chỉnh hàng loạt) được cân sáng và chỉnh da theo chính nó.
      */
     fun previewGrade(c: Context, uri: Uri, o: EditOptions, orient: Int, src: Preset?, delta: SkinRetouch.Delta?): AutoGrade {
+        val pv = preview(c, uri, o, orient, src, delta)
+        return AutoGrade.compute(pv.px, pv.w, pv.h, pv.map, o.auto, pv.faces)
+    }
+
+    class Preview(val px: IntArray, val w: Int, val h: Int, val map: SkinMap?, val faces: List<FaceRegion>)
+
+    /** Ảnh xem trước ~1800px đã qua các bước trước bước tự động (dùng để đo và tính bảng tự động). */
+    fun preview(c: Context, uri: Uri, o: EditOptions, orient: Int, src: Preset?, delta: SkinRetouch.Delta?): Preview {
         val prev = Ui.decodeMax(c, uri, 1800, orient) ?: throw IllegalStateException("không mở được ảnh")
         val faces = try { FaceFinder.detect(prev) } catch (t: Throwable) { emptyList() }
-        val map = SkinMap.build(prev, faces)
+        val map = SkinMap.build(c, prev, faces)
         val w = prev.width; val h = prev.height
         val px = IntArray(w * h)
         prev.getPixels(px, 0, w, 0, 0, w, h)
@@ -190,7 +198,17 @@ object Processor {
         if (d != null) SkinRetouch.apply(d, px, w, h, 0, h)
         src?.let { LookInverter(it, o.invertStrength, !o.invertWb).process(px) }
         o.preset?.let { ColorEngine(it, o.ev, o.strength).process(px) }
-        return AutoGrade.compute(px, w, h, map.takeIf { faces.isNotEmpty() || it.usedPerson }, o.auto)
+        return Preview(px, w, h, map.takeIf { faces.isNotEmpty() || it.usedPerson }, faces)
+    }
+
+    /** 2. Đo một ảnh trong lô (sau các bước chỉnh màu) để tính mục tiêu chung của cả bộ. */
+    fun measureForSet(c: Context, uri: Uri, o: EditOptions): ColorStats {
+        val head = Ui.readHead(c, uri, 512 * 1024)
+        val orient = PhotoInfoBuilder.build("", head).orientation
+        val src = if (o.invert && !SourceCheck.check(head).builtColor) PhotoInfoBuilder.sourcePreset(head)?.takeIf { it.look != "BW" && it.look != "SE" } else null
+        val pv = preview(c, uri, o, orient, src, null)
+        val main = AutoGrade.mainFace(pv.faces, pv.w, pv.h, SonyHints.read(head, orient))
+        return ColorStats.measure(pv.px, pv.w, pv.h, pv.map, main = main)
     }
 
     fun appVersion(c: Context): String =

@@ -30,6 +30,8 @@ class BatchActivity : Activity() {
     private var skinTone = 0
     private var useRef = false
     private var ref: ColorStats? = null
+    private var taste: ColorStats? = null
+    private var sync = true
     @Volatile private var running = false
     @Volatile private var cancel = false
 
@@ -77,6 +79,17 @@ class BatchActivity : Activity() {
             isEnabled = r != null
             setTextColor(Ui.ink)
             setOnCheckedChangeListener { _, on -> useRef = on; updateLabels() }
+        })
+
+        col.addView(CheckBox(this).apply {
+            text = "Đồng bộ cả bộ ảnh: quét trước, đưa độ sáng và màu da mọi ảnh về một mức chung"
+            setTextColor(Ui.ink); isChecked = true
+            setOnCheckedChangeListener { _, on -> sync = on; updateLabels() }
+        })
+        taste = RefStore.loadTaste(this)
+        col.addView(TextView(this).apply {
+            text = taste?.let { "Đang dùng gu riêng: ${it.name}." } ?: "Chưa học gu riêng (học trong màn Chỉnh ảnh → ★ Học gu từ ảnh đẹp)."
+            textSize = 12f; setTextColor(Ui.mute)
         })
 
         col.addView(title("Ống kính"))
@@ -161,7 +174,8 @@ class BatchActivity : Activity() {
     private fun updateLabels() {
         val color = if (selected >= 0) Presets.all[selected].let { "${it.slot} ${it.name}, độ mạnh $strength%" } else "không đổi màu"
         val auto = listOfNotNull(if (light > 0) "sáng $light%" else null, if (skinTone > 0) "da $skinTone%" else null,
-            if (useRef && ref != null) "ảnh mẫu 80%" else null).joinToString(", ").ifBlank { "tắt" }
+            if (useRef && ref != null) "ảnh mẫu 80%" else null,
+            if ((light > 0 || skinTone > 0) && sync) "đồng bộ cả bộ" else null).joinToString(", ").ifBlank { "tắt" }
         labels.text = "Tự động: $auto · Xóa viền tím $defringe% · Mịn da $smooth${if (smooth > 0) " (≈ ${SoftSkin.names[SoftSkin.levelOf(smooth)]})" else ""} · Màu: $color.\n" +
             "Mỗi ảnh lưu thành file mới trong Pictures/LookExif, ảnh gốc giữ nguyên."
     }
@@ -171,7 +185,7 @@ class BatchActivity : Activity() {
             preset = if (selected >= 0) Presets.all[selected] else null,
             strength = strength / 100f, invert = invert,
             smooth = smooth, blemish = blemish, defringe = defringe,
-            auto = AutoParams(light, skinTone, if (useRef && ref != null) 80 else 0, ref)
+            auto = AutoParams(light, skinTone, if (useRef && ref != null) 80 else 0, ref, taste = taste)
         )
         if (o.preset == null && !o.skin && o.defringe == 0 && !o.invert && !o.auto.on) {
             Ui.toast(this, "Chưa chọn chỉnh sửa nào"); return
@@ -181,11 +195,32 @@ class BatchActivity : Activity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         Thread {
             var ok = 0; var fail = 0
+            var opts = o
+            // lượt 1: quét cả bộ để lấy mức sáng và màu da chung
+            if (sync && o.auto.on && uris.size >= 2) {
+                val stats = ArrayList<ColorStats>()
+                for ((k, u) in uris.withIndex()) {
+                    if (cancel) break
+                    runOnUiThread { log.text = "Quét cả bộ ${k + 1}/${uris.size}..." }
+                    try { stats += Processor.measureForSet(this, u, o) } catch (t: Throwable) { }
+                }
+                if (stats.size >= 2) {
+                    val raw = SetTarget.of(stats)
+                    // mức chung lấy theo bộ ảnh nhưng không lệch quá xa mức đẹp (gu riêng hoặc chuẩn)
+                    val base = taste?.skin?.get(0) ?: 66f
+                    val skin = raw.skin?.let { floatArrayOf(it[0].coerceIn(base - 6f, base + 6f), it[1], it[2]) }
+                    val st = SetTarget(skin, raw.medianL.coerceIn(42f, 58f), raw.count)
+                    opts = o.copy(auto = o.auto.copy(set = st))
+                    runOnUiThread {
+                        log.text = "Mức chung: " + (skin?.let { "da L*=${it[0].toInt()}, " } ?: "") + "độ sáng cảnh ${st.medianL.toInt()}"
+                    }
+                }
+            }
             for ((k, u) in uris.withIndex()) {
                 if (cancel) break
                 val name = Ui.displayName(this, u)
                 runOnUiThread { log.text = "Đang xử lý ${k + 1}/${uris.size}: $name" }
-                try { Processor.processAndSave(this, u, o); ok++ } catch (t: Throwable) { fail++ }
+                try { Processor.processAndSave(this, u, opts); ok++ } catch (t: Throwable) { fail++ }
                 runOnUiThread { progress.progress = k + 1 }
             }
             runOnUiThread {

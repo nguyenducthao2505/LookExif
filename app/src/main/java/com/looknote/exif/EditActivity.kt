@@ -83,6 +83,10 @@ class EditActivity : Activity() {
     private var skinTone = 0
     private var refAmount = 0
     private var ref: ColorStats? = null
+    private var taste: ColorStats? = null
+    private var hints = SonyHints.NONE
+    private var backlight = true
+    private lateinit var tasteInfo: TextView
     private var skinMap: SkinMap? = null
     private var skinMapOn = false
     private var gradeKey = ""
@@ -185,6 +189,17 @@ class EditActivity : Activity() {
         refBar = slider(100, 0, onChange = { refAmount = it; updateLabels() }); panel.addView(refBar)
         ref = RefStore.load(this)
         showRef()
+        panel.addView(CheckBox(this).apply {
+            text = "Ngược sáng: nâng riêng người, giữ trời/nền"; setTextColor(Ui.ink); isChecked = true
+            setOnCheckedChangeListener { _, on -> backlight = on; render() }
+        })
+        val tasteRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        tasteRow.addView(Ui.button(this, "★ Học gu từ ảnh đẹp", false) { pickTaste() }, LinearLayout.LayoutParams(0, dp(38), 1.4f).apply { rightMargin = dp(6) })
+        tasteRow.addView(Ui.button(this, "Xóa gu", false) { taste = null; RefStore.saveTaste(this, null); showTaste(); render() }, LinearLayout.LayoutParams(0, dp(38), 1f))
+        panel.addView(tasteRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
+        tasteInfo = small(""); panel.addView(tasteInfo)
+        taste = RefStore.loadTaste(this)
+        showTaste()
 
         // --- Ống kính ---
         panel.addView(sectionTitle("Ống kính"))
@@ -412,7 +427,8 @@ class EditActivity : Activity() {
 
     private val skinOn get() = smooth > 0 || blemish
     private val invertOn get() = invert && srcPreset != null
-    private val autoParams get() = AutoParams(light, skinTone, if (ref != null) refAmount else 0, ref)
+    private val autoParams get() = AutoParams(light, skinTone, if (ref != null) refAmount else 0, ref,
+        taste = taste, hints = hints, backlight = backlight)
     private val colorEdit get() = skinOn || selected >= 0 || invertOn || defringe > 0 || autoParams.on
     private val anyEdit get() = colorEdit || !crop.isIdentity
 
@@ -421,6 +437,7 @@ class EditActivity : Activity() {
         worker.execute {
             val head = try { Ui.readHead(this, uri, 512 * 1024) } catch (e: Exception) { ByteArray(0) }
             orientation = PhotoInfoBuilder.build("", head).orientation
+            hints = try { SonyHints.read(head, orientation) } catch (t: Throwable) { SonyHints.NONE }
             val chk = SourceCheck.check(head)
             val src = PhotoInfoBuilder.sourcePreset(head)?.takeIf { !chk.builtColor }
             val shotSkin = ExifParser.softSkin(head)
@@ -474,15 +491,13 @@ class EditActivity : Activity() {
             if (b != null) {
                 val f = try { FaceFinder.detect(b) } catch (e: Throwable) { emptyList() }
                 faces = f
-                val sm = try { SkinMap.build(b, f) } catch (e: Throwable) { null }
+                val sm = try { SkinMap.build(this, b, f) } catch (e: Throwable) { null }
                 skinMap = sm?.takeIf { f.isNotEmpty() || it.usedPerson }
                 runOnUiThread {
                     val m = skinMap
-                    autoInfo.text = when {
-                        m == null -> "Không thấy người trong ảnh: chuẩn hóa sáng theo cả ảnh, không chỉnh da."
-                        m.usedPerson -> "Bản đồ da AI: tách người khỏi nền + màu da lấy mẫu ở má (${"%.1f".format(m.coverage * 100)}% ảnh là da)."
-                        else -> "Bản đồ da: theo vùng quanh khuôn mặt (máy không chạy được tách người)."
-                    }
+                    val hs = hints.describe()
+                    autoInfo.text = (if (m == null) "Không thấy người trong ảnh: chuẩn hóa sáng theo cả ảnh, không chỉnh da." else m.describe()) +
+                        (if (hs.isNotBlank()) "\nThông số Sony: $hs." else "")
                     faceInfo.text = if (f.isEmpty()) "Không thấy khuôn mặt: chỉ làm mịn nhẹ theo màu da, không xóa mụn."
                     else "Tìm thấy ${f.size} khuôn mặt. Mắt, lông mày, môi và sợi tóc được giữ nguyên nét."
                     if (skinOn || autoParams.on) render()
@@ -516,7 +531,7 @@ class EditActivity : Activity() {
         val key = "${o.preset?.slot}-${o.preset?.name}-${o.strength}-${o.ev}-${o.invert}-${o.invertStrength}-${o.invertWb}-" +
             "${o.smooth}-${o.blemish}-${o.defringe}-${o.auto.key()}-${System.identityHashCode(m)}-${System.identityHashCode(b)}"
         if (key == gradeKey && grade != null) return grade
-        val g = AutoGrade.compute(px, b.width, b.height, m, o.auto)
+        val g = AutoGrade.compute(px, b.width, b.height, m, o.auto, faces ?: emptyList())
         grade = g; gradeKey = key
         runOnUiThread { if (g.note.isNotBlank()) autoInfo.text = "Tự động: " + g.note }
         return g
@@ -561,6 +576,23 @@ class EditActivity : Activity() {
         val i = Intent(Intent.ACTION_GET_CONTENT).apply { type = "image/*"; addCategory(Intent.CATEGORY_OPENABLE) }
         try { startActivityForResult(Intent.createChooser(i, "Chọn ảnh mẫu"), REQ_REF) }
         catch (e: Exception) { Ui.toast(this, "Không mở được thư viện ảnh") }
+    }
+
+    private fun pickTaste() {
+        val i = Intent(Intent.ACTION_GET_CONTENT).apply {
+            type = "image/*"; addCategory(Intent.CATEGORY_OPENABLE); putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+        }
+        try { startActivityForResult(Intent.createChooser(i, "Chọn 10–20 ảnh đẹp nhất của bạn"), REQ_TASTE) }
+        catch (e: Exception) { Ui.toast(this, "Không mở được thư viện ảnh") }
+    }
+
+    private fun showTaste() {
+        val t = taste
+        tasteInfo.text = if (t == null) "Chọn 10–20 ảnh bạn thấy đẹp nhất (đã chỉnh xong). App học độ sáng da, tông da, độ đậm và độ sáng cảnh bạn hay chọn, rồi nút Tự động sẽ chỉnh theo gu đó thay cho mục tiêu chuẩn."
+        else "Đang dùng gu: ${t.name}" + (t.skin?.let { s ->
+            val hue = Math.toDegrees(kotlin.math.atan2(s[2].toDouble(), s[1].toDouble())).toInt()
+            " · da sáng L*=${s[0].toInt()}, tông ${hue}°, độ đậm ${kotlin.math.hypot(s[1].toDouble(), s[2].toDouble()).toInt()}"
+        } ?: " · (các ảnh không có người: chỉ học độ sáng cảnh)") + ". Dùng cho cả chỉnh hàng loạt."
     }
 
     private fun clearRef() {
@@ -665,6 +697,25 @@ class EditActivity : Activity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQ_TASTE && resultCode == RESULT_OK) {
+            val list = ArrayList<Uri>()
+            data?.clipData?.let { cd -> for (k in 0 until cd.itemCount) list += cd.getItemAt(k).uri }
+            if (list.isEmpty()) data?.data?.let { list += it }
+            if (list.isEmpty()) return
+            tasteInfo.text = "Đang học gu từ ${list.size} ảnh..."
+            worker.execute {
+                val stats = list.take(40).mapNotNull { u -> try { RefStore.measure(this, u) } catch (t: Throwable) { null } }
+                runOnUiThread {
+                    if (stats.isEmpty()) { Ui.toast(this, "Không đọc được ảnh nào"); showTaste(); return@runOnUiThread }
+                    val t = ColorStats.merge(stats, "${stats.size} ảnh (${stats.count { it.skin != null }} ảnh có người)")
+                    taste = t; RefStore.saveTaste(this, t)
+                    showTaste()
+                    if (light == 0 && skinTone == 0) setAuto(70, 75)
+                    render()
+                }
+            }
+            return
+        }
         if (requestCode == REQ_REF && resultCode == RESULT_OK) {
             val u = data?.data ?: return
             refInfo.text = "Đang đọc ảnh mẫu..."
@@ -703,5 +754,5 @@ class EditActivity : Activity() {
 
     private fun dp(v: Int) = Ui.dp(this, v)
 
-    companion object { private const val REQ_CROP = 71; private const val REQ_REF = 72 }
+    companion object { private const val REQ_CROP = 71; private const val REQ_REF = 72; private const val REQ_TASTE = 73 }
 }
