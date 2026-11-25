@@ -10,6 +10,17 @@ App Android để xem thông số chụp của ảnh Sony (thử với Sony A7C 
 
 Định dạng đọc được: JPEG, HEIF/HEIC, ARW. App không cần quyền truy cập bộ nhớ và không dùng mạng.
 
+## Tự động AI (từ v1.26)
+
+Trong màn **Chỉnh ảnh**, mục **Tự động AI**:
+
+- **✦ Tự động:** một chạm bật chuẩn hóa ánh sáng 70% + màu da 75% (và giống ảnh mẫu 80% nếu đã chọn ảnh mẫu).
+- **Bản đồ da AI:** tách người khỏi nền bằng ML Kit Selfie Segmentation (offline) kết hợp màu da lấy mẫu ở má, bỏ mắt, mày, môi. Bấm **Bản đồ da** để xem vùng được chỉnh (phủ màu cam).
+- **Chuẩn hóa ánh sáng:** cân sáng theo da mặt (L* ≈ 66), da ngăm trong cảnh đủ sáng giữ độ sâu; đường cong giữ điểm trắng nên vùng sáng không cháy.
+- **Màu da tự động:** chỉ tác động trong bản đồ da — đưa tông da về 50–60°, giữ độ đậm theo loại da (da sáng không ửng, da ngăm không bệch xám), làm đều vết ửng đỏ.
+- **Match màu ảnh mẫu:** học tông sáng, màu nền và màu da của một ảnh bạn thích; da xử lý riêng nên không bị nhuộm màu nền. Ảnh mẫu được nhớ để dùng trong **Chỉnh hàng loạt**.
+- **Chỉnh hàng loạt:** mỗi ảnh được tính riêng (ảnh tối kéo sáng, ảnh sáng hạ xuống), nên cả bộ ảnh đều màu.
+
 ## Build APK bằng GitHub Actions
 
 1. Tạo repo mới trên GitHub, ví dụ `LookExif`.
