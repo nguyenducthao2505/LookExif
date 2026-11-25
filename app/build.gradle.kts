@@ -11,8 +11,8 @@ android {
         applicationId = "com.looknote.exif"
         minSdk = 26
         targetSdk = 34
-        versionCode = 31
-        versionName = "1.26"
+        versionCode = 32
+        versionName = "1.27"
     }
 
     buildTypes {
@@ -21,6 +21,16 @@ android {
             // Ký bằng khóa debug để cài được ngay, không cần tạo keystore
             signingConfig = signingConfigs.getByName("debug")
         }
+    }
+
+    // mô hình AI phân lớp da phải để nguyên (không nén) mới đọc được
+    androidResources {
+        noCompress += "tflite"
+    }
+
+    packaging {
+        // ML Kit và MediaPipe có thể cùng mang thư viện C++ dùng chung
+        jniLibs.pickFirsts += setOf("lib/*/libc++_shared.so")
     }
 
     compileOptions {
@@ -42,4 +52,6 @@ dependencies {
     implementation("com.google.android.gms:play-services-tasks:18.2.0")
     // Tách người khỏi nền để dựng bản đồ da (mô hình nằm sẵn trong app, chạy offline)
     implementation("com.google.mlkit:segmentation-selfie:16.0.0-beta6")
+    // Phân lớp da mặt / da người / tóc / áo (MediaPipe, offline; mô hình tải về lúc build)
+    implementation("com.google.mediapipe:tasks-vision:0.10.14")
 }
