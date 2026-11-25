@@ -11,8 +11,8 @@ android {
         applicationId = "com.looknote.exif"
         minSdk = 26
         targetSdk = 34
-        versionCode = 30
-        versionName = "1.25"
+        versionCode = 31
+        versionName = "1.26"
     }
 
     buildTypes {
@@ -40,4 +40,6 @@ dependencies {
     // Nhận diện khuôn mặt chạy offline (mô hình nằm sẵn trong app)
     implementation("com.google.mlkit:face-detection:16.1.7")
     implementation("com.google.android.gms:play-services-tasks:18.2.0")
+    // Tách người khỏi nền để dựng bản đồ da (mô hình nằm sẵn trong app, chạy offline)
+    implementation("com.google.mlkit:segmentation-selfie:16.0.0-beta6")
 }
