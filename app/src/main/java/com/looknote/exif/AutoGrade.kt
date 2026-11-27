@@ -87,7 +87,9 @@ object Segmenter {
  * Bản đồ da (0..1) và vùng người (0..1) ở độ phân giải xem trước.
  * Nguồn tốt nhất là AI phân lớp da; dự phòng: tách người + màu da, cuối cùng là vùng quanh mặt.
  */
-class SkinMap(val w: Int, val h: Int, val m: FloatArray, val person: FloatArray?, val source: String) {
+class SkinMap(val w: Int, val h: Int, val m: FloatArray, val person: FloatArray?, val source: String,
+              /** Tóc và quần áo (chỉ có khi dùng AI phân lớp). */
+              val hair: FloatArray? = null, val clothes: FloatArray? = null) {
     val usedPerson get() = source != "face"
     val coverage: Float by lazy { var s = 0.0; for (v in m) s += v; (s / m.size).toFloat() }
 
@@ -123,7 +125,7 @@ class SkinMap(val w: Int, val h: Int, val m: FloatArray, val person: FloatArray?
             // ----- a. AI phân lớp: cả ảnh + từng vùng quanh mặt nhỏ (ảnh toàn thân / ảnh nhóm) -----
             val ai = if (c != null) aiClasses(c, b, faces) else null
             if (ai != null) {
-                val skin = ai[0]; val person = ai[1]
+                val skin = ai[0]; val person = ai[1]; val hair = ai[2]; val clothes = ai[3]
                 val m = FloatArray(n)
                 for (i in 0 until n) {
                     var v = skin[i]
@@ -135,7 +137,9 @@ class SkinMap(val w: Int, val h: Int, val m: FloatArray, val person: FloatArray?
                 excludeFeatures(m, samples, w, h)
                 SkinRetouch.blur(m, w, h, max(1, (fw * 0.008f).roundToInt()))
                 SkinRetouch.blur(person, w, h, max(1, (fw * 0.02f).roundToInt()))
-                return SkinMap(w, h, m, person, "ai")
+                SkinRetouch.blur(hair, w, h, max(1, (fw * 0.006f).roundToInt()))
+                SkinRetouch.blur(clothes, w, h, max(1, (fw * 0.008f).roundToInt()))
+                return SkinMap(w, h, m, person, "ai", hair, clothes)
             }
 
             // ----- b. tách người (ML Kit) × màu da; c. vùng quanh mặt -----
@@ -166,6 +170,7 @@ class SkinMap(val w: Int, val h: Int, val m: FloatArray, val person: FloatArray?
             val full = Segmenter.classes(c, b) ?: return null
             val skin = FloatArray(w * h) { full[2][it] + full[3][it] }
             val person = FloatArray(w * h) { 1f - full[0][it] }
+            val hair = full[1].copyOf(); val clothes = FloatArray(w * h) { full[4][it] + full[5][it] }
             // mặt nhỏ hơn ~1/6 ảnh: mô hình 256px nhìn không rõ, chạy thêm trên vùng cắt
             for (f in faces.sortedByDescending { it.width }.take(6)) {
                 if (f.width > max(w, h) / 6f) continue
@@ -185,9 +190,12 @@ class SkinMap(val w: Int, val h: Int, val m: FloatArray, val person: FloatArray?
                     val s2 = (cl[2][j] + cl[3][j]) * t; val p2 = (1f - cl[0][j]) * t
                     if (s2 > skin[i]) skin[i] = s2
                     if (p2 > person[i]) person[i] = p2
+                    val h2 = cl[1][j] * t; val c2 = (cl[4][j] + cl[5][j]) * t
+                    if (h2 > hair[i]) hair[i] = h2
+                    if (c2 > clothes[i]) clothes[i] = c2
                 }
             }
-            return arrayOf(skin, person)
+            return arrayOf(skin, person, hair, clothes)
         }
 
         class Sample(val cb: Float, val cr: Float, val dcb: Float, val dcr: Float, val f: FaceRegion)

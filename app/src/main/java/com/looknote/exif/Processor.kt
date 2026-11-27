@@ -68,7 +68,9 @@ data class EditOptions(
     /** Cắt / xoay khi lưu (null = giữ nguyên khung). */
     val crop: CropSpec? = null,
     /** Chuẩn hóa sáng, màu da tự động, match ảnh mẫu. */
-    val auto: AutoParams = AutoParams()
+    val auto: AutoParams = AutoParams(),
+    /** Công cụ kiểu Capture One: màu, tông, chi tiết, ống kính, layer. */
+    val develop: DevelopParams = DevelopParams()
 ) {
     val skin get() = smooth > 0 || blemish
 }
@@ -82,7 +84,8 @@ object Processor {
      * @param delta0 độ lệch làm da đã tính sẵn (từ màn chỉnh); null thì tự tính khi cần
      * @param grade0 bảng chỉnh tự động đã tính sẵn; null thì tự tính khi cần (chỉnh hàng loạt: mỗi ảnh tính riêng)
      */
-    fun processAndSave(c: Context, uri: Uri, o: EditOptions, delta0: SkinRetouch.Delta? = null, grade0: AutoGrade? = null): Saved {
+    fun processAndSave(c: Context, uri: Uri, o: EditOptions, delta0: SkinRetouch.Delta? = null, grade0: AutoGrade? = null,
+                       guide0: DevelopGuide? = null): Saved {
         val head = Ui.readHead(c, uri, 512 * 1024)
         val orient = PhotoInfoBuilder.build("", head).orientation
         val src = if (o.invert && !SourceCheck.check(head).builtColor) PhotoInfoBuilder.sourcePreset(head)?.takeIf { it.look != "BW" && it.look != "SE" } else null
@@ -134,12 +137,42 @@ object Processor {
             work.setPixels(buf, 0, w, 0, y, w, hh)
             y += hh
         }
-        // lượt 3: cắt / xoay
-        var outBmp = work
-        if (o.crop != null && !o.crop.isIdentity) {
-            outBmp = Crop.apply(work, o.crop)
-            if (outBmp !== work) work.recycle()
+        // lượt 2b: công cụ Develop (màu, tông, chi tiết, layer) theo dải có dòng đệm
+        val dv = o.develop
+        if (dv.lutOn || dv.localOn || dv.detailOn || dv.layersOn) {
+            val guide = guide0 ?: if (dv.localOn || dv.layersOn) guideFromWork(c, work, dv) else null
+            val engine2 = DevelopEngine(dv, guide)
+            val margin = engine2.margin(w)
+            val band = IntArray(w * (rows + 2 * margin))
+            // dòng đệm phía trên phải là ảnh chưa xử lý: giữ lại đuôi chưa xử lý của dải trước
+            val tail = IntArray(w * margin)
+            var tailRows = 0
+            var yy = 0
+            while (yy < h) {
+                val hh = minOf(rows, h - yy)
+                val t = minOf(margin, yy, tailRows); val b = minOf(margin, h - (yy + hh))
+                if (t > 0) System.arraycopy(tail, (tailRows - t) * w, band, 0, t * w)
+                work.getPixels(band, t * w, w, 0, yy, w, hh + b)
+                val keep = minOf(margin, hh)
+                System.arraycopy(band, (t + hh - keep) * w, tail, 0, keep * w)
+                tailRows = keep
+                engine2.process(band, w, h, t, hh, b, yy)
+                work.setPixels(band, t * w, w, 0, yy, w, hh)
+                yy += hh
+            }
         }
+        var geo = work
+        if (dv.lensOn) {
+            geo = Lens.apply(work, dv)
+            if (geo !== work) work.recycle()
+        }
+        // lượt 3: cắt / xoay
+        var outBmp = geo
+        if (o.crop != null && !o.crop.isIdentity) {
+            outBmp = Crop.apply(geo, o.crop)
+            if (outBmp !== geo) geo.recycle()
+        }
+        if (dv.vignette != 0) outBmp = Lens.vignette(outBmp, dv.vignette)
         val ow = outBmp.width; val oh = outBmp.height
         val bos = ByteArrayOutputStream()
         outBmp.compress(Bitmap.CompressFormat.JPEG, AppSettings.quality(c), bos)
@@ -167,7 +200,7 @@ object Processor {
         val baseName = Ui.displayName(c, uri).substringBeforeLast('.')
         val tag = listOfNotNull(if (src != null) "doi" else null, o.preset?.slot?.ifBlank { null },
             if (delta != null) "da" else null, if (grade != null && !grade.isIdentity) "auto" else null,
-            if (o.defringe > 0) "vien" else null,
+            if (o.defringe > 0) "vien" else null, if (dv.on) "c1" else null,
             if (o.crop != null && !o.crop.isIdentity) "cat" else null).joinToString("-").ifBlank { "chinh" }
         val outName = "${baseName}_LX-$tag.jpg"
         return Saved(saveJpeg(c, jpg, outName, "LookExif"), outName)
@@ -199,6 +232,22 @@ object Processor {
         src?.let { LookInverter(it, o.invertStrength, !o.invertWb).process(px) }
         o.preset?.let { ColorEngine(it, o.ev, o.strength).process(px) }
         return Preview(px, w, h, map.takeIf { faces.isNotEmpty() || it.usedPerson }, faces)
+    }
+
+    /** Bản đồ hướng dẫn cho Develop khi không có sẵn (chỉnh hàng loạt): thu nhỏ ảnh đã qua các bước trước. */
+    private fun guideFromWork(c: Context, work: Bitmap, dv: DevelopParams): DevelopGuide {
+        val s = 640f / maxOf(work.width, work.height)
+        val small = Bitmap.createScaledBitmap(work, maxOf(1, (work.width * s).toInt()), maxOf(1, (work.height * s).toInt()), true)
+        val needAi = dv.layers.any { it.on && it.mask.kind in setOf("skin", "person", "hair", "clothes", "background", "sky") }
+        val map = if (needAi) {
+            val f = try { FaceFinder.detect(small) } catch (t: Throwable) { emptyList() }
+            try { SkinMap.build(c, small, f) } catch (t: Throwable) { null }
+        } else null
+        val px = IntArray(small.width * small.height)
+        small.getPixels(px, 0, small.width, 0, 0, small.width, small.height)
+        val g = DevelopGuide.of(px, small.width, small.height, map)
+        small.recycle()
+        return g
     }
 
     /** 2. Đo một ảnh trong lô (sau các bước chỉnh màu) để tính mục tiêu chung của cả bộ. */

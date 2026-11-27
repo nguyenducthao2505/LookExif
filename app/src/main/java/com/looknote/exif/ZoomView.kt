@@ -72,11 +72,28 @@ class ZoomView(c: Context) : View(c) {
         }
     }
 
-    fun setOverlay(b: Bitmap?) {
+    fun setOverlay(b: Bitmap?, blinking: Boolean = true) {
         main.removeCallbacks(blink)
         overlay = b; overlayVisible = true; invalidate()
-        if (b != null) main.postDelayed(blink, 500)
+        if (b != null && blinking) main.postDelayed(blink, 500)
     }
+
+    // ----- công cụ vẽ trên ảnh (ống hút, cọ mask, gradient) -----
+    /** Chạm một lần: toạ độ 0..1 trên ảnh đang hiện. */
+    var onTap: ((Float, Float) -> Unit)? = null
+    /** Bật: một ngón kéo để vẽ (0 = chạm xuống, 1 = kéo, 2 = nhấc), hai ngón vẫn phóng to / kéo ảnh. */
+    var penMode = false
+    var onPen: ((Int, Float, Float) -> Unit)? = null
+    private var penActive = false
+    /** Đường dẫn hiển thị: [loại, ...] loại 1 = đoạn thẳng (x1,y1,x2,y2), 2 = elip (cx,cy,rx,ry), 3 = vòng cọ (cx,cy,r theo bề rộng). */
+    var guides: FloatArray? = null
+        set(v) { field = v; invalidate() }
+    private val guidePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 3f; setShadowLayer(3f, 0f, 0f, Color.BLACK)
+    }
+
+    private fun normX(x: Float) = if (fullW > 0) (x - tx) / (fullW * scale) else 0f
+    private fun normY(y: Float) = if (fullH > 0) (y - ty) / (fullH * scale) else 0f
 
     /** Trong khung cuộn: chiều cao theo tỉ lệ ảnh (tối đa 1,6 lần bề rộng). */
     var wrapAspect = false
@@ -102,6 +119,12 @@ class ZoomView(c: Context) : View(c) {
     private val gestures = GestureDetector(c, object : GestureDetector.SimpleOnGestureListener() {
         override fun onScroll(e1: MotionEvent?, e2: MotionEvent, dx: Float, dy: Float): Boolean {
             tx -= dx; ty -= dy; clamp(); invalidate(); scheduleTile()
+            return true
+        }
+        override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+            val cb = onTap ?: return false
+            val nx = normX(e.x); val ny = normY(e.y)
+            if (nx in 0f..1f && ny in 0f..1f) cb(nx, ny)
             return true
         }
         override fun onDoubleTap(e: MotionEvent): Boolean {
@@ -184,6 +207,19 @@ class ZoomView(c: Context) : View(c) {
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> if (dragging) { dragging = false; return true }
             }
         }
+        if (penMode && onPen != null) {
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    penActive = true; parent?.requestDisallowInterceptTouchEvent(true)
+                    onPen?.invoke(0, normX(e.x), normY(e.y)); return true
+                }
+                MotionEvent.ACTION_MOVE -> if (penActive && e.pointerCount == 1) { onPen?.invoke(1, normX(e.x), normY(e.y)); return true }
+                MotionEvent.ACTION_POINTER_DOWN -> if (penActive) { penActive = false; onPen?.invoke(3, 0f, 0f) }
+                MotionEvent.ACTION_UP -> if (penActive) { penActive = false; onPen?.invoke(2, normX(e.x), normY(e.y)); return true }
+                MotionEvent.ACTION_CANCEL -> if (penActive) { penActive = false; onPen?.invoke(3, 0f, 0f); return true }
+            }
+            if (penActive) return true
+        }
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> onHoldChange?.invoke(true)
             MotionEvent.ACTION_POINTER_DOWN -> {
@@ -219,6 +255,21 @@ class ZoomView(c: Context) : View(c) {
             mo.postScale(fullW * scale / ov.width, fullH * scale / ov.height)
             mo.postTranslate(tx, ty)
             canvas.drawBitmap(ov, mo, paint)
+        }
+        guides?.let { g ->
+            var i = 0
+            val iw = fullW * scale; val ih = fullH * scale
+            while (i < g.size) {
+                when (g[i].toInt()) {
+                    1 -> { canvas.drawLine(tx + g[i + 1] * iw, ty + g[i + 2] * ih, tx + g[i + 3] * iw, ty + g[i + 4] * ih, guidePaint); i += 5 }
+                    2 -> {
+                        val cx = tx + g[i + 1] * iw; val cy = ty + g[i + 2] * ih
+                        canvas.drawOval(RectF(cx - g[i + 3] * iw, cy - g[i + 4] * ih, cx + g[i + 3] * iw, cy + g[i + 4] * ih), guidePaint); i += 5
+                    }
+                    3 -> { canvas.drawCircle(tx + g[i + 1] * iw, ty + g[i + 2] * ih, g[i + 3] * iw, guidePaint); i += 4 }
+                    else -> i = g.size
+                }
+            }
         }
         val cmp = compareImg
         if (cmp != null) {

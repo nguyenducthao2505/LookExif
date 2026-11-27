@@ -32,6 +32,7 @@ class BatchActivity : Activity() {
     private var ref: ColorStats? = null
     private var taste: ColorStats? = null
     private var sync = true
+    private var style: StyleData? = null
     @Volatile private var running = false
     @Volatile private var cancel = false
 
@@ -62,6 +63,31 @@ class BatchActivity : Activity() {
             typeface = Film.display; letterSpacing = 0.08f; setTextColor(Ui.ink); setPadding(dp(12), 0, 0, 0)
         })
         col.addView(bar)
+
+        col.addView(title("Style"))
+        val styles = StyleStore.list(this)
+        col.addView(TextView(this).apply {
+            text = if (styles.isEmpty()) "Chưa có Style. Lưu Style ở màn Chỉnh ảnh → tab Style (gồm màu, tông, chi tiết, layer...)."
+            else "Áp một Style cho cả lô: Style thay cho các lựa chọn màu / da / tự động bên dưới."
+            textSize = 12f; setTextColor(Ui.mute)
+        })
+        if (styles.isNotEmpty()) {
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            val sc = android.widget.HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; addView(row) }
+            val btns = ArrayList<android.widget.Button>()
+            val all = listOf<StyleData?>(null) + styles
+            all.forEachIndexed { i, st ->
+                val b = Ui.button(this, st?.name ?: "Không dùng", false) {
+                    style = st
+                    btns.forEachIndexed { k, bb -> Film.paintChip(this, bb, k == i) }
+                    updateLabels()
+                }
+                Film.paintChip(this, b, i == 0)
+                btns += b
+                row.addView(b, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36)).apply { rightMargin = dp(6) })
+            }
+            col.addView(sc)
+        }
 
         col.addView(title("Tự động AI"))
         col.addView(TextView(this).apply {
@@ -176,18 +202,25 @@ class BatchActivity : Activity() {
         val auto = listOfNotNull(if (light > 0) "sáng $light%" else null, if (skinTone > 0) "da $skinTone%" else null,
             if (useRef && ref != null) "ảnh mẫu 80%" else null,
             if ((light > 0 || skinTone > 0) && sync) "đồng bộ cả bộ" else null).joinToString(", ").ifBlank { "tắt" }
-        labels.text = "Tự động: $auto · Xóa viền tím $defringe% · Mịn da $smooth${if (smooth > 0) " (≈ ${SoftSkin.names[SoftSkin.levelOf(smooth)]})" else ""} · Màu: $color.\n" +
+        labels.text = (style?.let { "Style: ${it.name} · " } ?: "") + "Tự động: $auto · Xóa viền tím $defringe% · Mịn da $smooth${if (smooth > 0) " (≈ ${SoftSkin.names[SoftSkin.levelOf(smooth)]})" else ""} · Màu: $color.\n" +
             "Mỗi ảnh lưu thành file mới trong Pictures/LookExif, ảnh gốc giữ nguyên."
     }
 
     private fun start(uris: List<android.net.Uri>) {
-        val o = EditOptions(
+        val st = style
+        val o = if (st != null) EditOptions(
+            preset = st.presetIndex().takeIf { it >= 0 }?.let { Presets.all[it] },
+            strength = st.strength / 100f, ev = st.ev, invert = invert,
+            smooth = st.smooth, blemish = st.blemish, defringe = st.defringe,
+            auto = AutoParams(st.light, st.skinTone, if (useRef && ref != null) 80 else 0, ref, taste = taste),
+            develop = st.dev.copy(layers = st.dev.layers.filter { it.mask.kind != "brush" })
+        ) else EditOptions(
             preset = if (selected >= 0) Presets.all[selected] else null,
             strength = strength / 100f, invert = invert,
             smooth = smooth, blemish = blemish, defringe = defringe,
             auto = AutoParams(light, skinTone, if (useRef && ref != null) 80 else 0, ref, taste = taste)
         )
-        if (o.preset == null && !o.skin && o.defringe == 0 && !o.invert && !o.auto.on) {
+        if (o.preset == null && !o.skin && o.defringe == 0 && !o.invert && !o.auto.on && !o.develop.on) {
             Ui.toast(this, "Chưa chọn chỉnh sửa nào"); return
         }
         running = true; cancel = false

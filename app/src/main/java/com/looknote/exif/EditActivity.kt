@@ -23,7 +23,7 @@ import java.util.concurrent.Executors
  * Màn chỉnh ảnh: xóa viền tím, làm mịn da, xóa mụn, đổi công thức màu,
  * so sánh chia đôi, histogram, vùng cháy; lưu thành ảnh mới và chia sẻ.
  */
-class EditActivity : Activity() {
+class EditActivity : Activity(), DevelopHost {
 
     private lateinit var uri: Uri
     private lateinit var zoom: ZoomView
@@ -101,6 +101,23 @@ class EditActivity : Activity() {
     private lateinit var refBar: SeekBar
     private lateinit var mapBtn: Button
 
+    // ----- Develop (công cụ kiểu Capture One) -----
+    private lateinit var dev: DevelopPanel
+    private lateinit var strengthBar: SeekBar
+    private lateinit var fringeBar: SeekBar
+    private lateinit var blemishBox: CheckBox
+    private val tabBoxes = ArrayList<LinearLayout>()
+    private val tabBtns = ArrayList<Button>()
+    private var tab = 0
+    /** Ảnh xem trước trước bước Develop (để ống hút đọc màu). */
+    private var preDev: IntArray? = null
+    private var preDevW = 0; private var preDevH = 0
+    private var devGuide: DevelopGuide? = null
+    private var devGuideKey = ""
+    private var lastHist: Analysis.Hist? = null
+    private var maskShow = -1
+    private var pickCb: ((DoubleArray) -> Unit)? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Ui.darkBars(this)
@@ -154,6 +171,7 @@ class EditActivity : Activity() {
         panel.addView(viewRow)
         histView = HistogramView(this)
         panel.addView(histView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(84)).apply { topMargin = dp(8) })
+        val firstBasic = panel.childCount
 
         // --- Khung ảnh ---
         panel.addView(sectionTitle("Khung ảnh"))
@@ -205,17 +223,19 @@ class EditActivity : Activity() {
         panel.addView(sectionTitle("Ống kính"))
         fringeLabel = label()
         panel.addView(fringeLabel)
-        panel.addView(slider(100, 0, onChange = { defringe = it; updateLabels() }))
+        fringeBar = slider(100, 0, onChange = { defringe = it; updateLabels() })
+        panel.addView(fringeBar)
 
         // --- Da ---
         panel.addView(sectionTitle("Da"))
         faceInfo = small("Đang tìm khuôn mặt...")
         panel.addView(faceInfo)
         val skinRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        skinRow.addView(CheckBox(this).apply {
+        blemishBox = CheckBox(this).apply {
             text = "Xóa mụn"; setTextColor(Ui.ink)
             setOnCheckedChangeListener { _, on -> blemish = on; render() }
-        })
+        }
+        skinRow.addView(blemishBox)
         smoothLabel = label().apply { setPadding(dp(16), 0, 0, 0) }
         skinRow.addView(smoothLabel)
         panel.addView(skinRow)
@@ -260,13 +280,36 @@ class EditActivity : Activity() {
         summary = small("")
         panel.addView(summary)
         strengthLabel = label(); panel.addView(strengthLabel)
-        panel.addView(slider(100, 100, onChange = { strength = it; updateLabels() }))
+        strengthBar = slider(100, 100, onChange = { strength = it; updateLabels() })
+        panel.addView(strengthBar)
         evLabel = label(); panel.addView(evLabel)
         evBar = slider(20, 10, onChange = { ev = (it - 10) / 10.0; updateLabels() })
         panel.addView(evBar)
 
         panel.addView(small("Lưu: " + (if (AppSettings.fullRes(this)) "đủ độ phân giải" else "khoảng 8MP") +
             ", JPEG ${AppSettings.quality(this)}. Đổi trong Cài đặt. Ảnh gốc luôn giữ nguyên.").apply { setPadding(dp(2), dp(12), 0, 0) })
+
+        // ----- tab công cụ: Cơ bản (các mục trên) + Màu, Tông, Chi tiết, Ống kính, Layer, Style -----
+        val basicBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        while (panel.childCount > firstBasic) {
+            val ch = panel.getChildAt(firstBasic)
+            panel.removeViewAt(firstBasic)
+            basicBox.addView(ch)
+        }
+        dev = DevelopPanel(this)
+        val tabRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val tabScroll = HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; addView(tabRow) }
+        val names = listOf("Cơ bản", "Màu", "Tông", "Chi tiết", "Ống kính", "Layer", "Style")
+        tabBoxes += basicBox; tabBoxes += dev.color; tabBoxes += dev.tone; tabBoxes += dev.detail
+        tabBoxes += dev.lens; tabBoxes += dev.layers; tabBoxes += dev.styles
+        names.forEachIndexed { i, n ->
+            val b = Ui.button(this, n, false) { selectTab(i) }
+            tabBtns += b
+            tabRow.addView(b, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36)).apply { rightMargin = dp(6) })
+        }
+        panel.addView(tabScroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
+        for (bx in tabBoxes) panel.addView(bx)
+        selectTab(0)
 
         applyLayout()
         setContentView(root)
@@ -416,20 +459,24 @@ class EditActivity : Activity() {
         if (b == null) return
         val w = b.width; val h = b.height
         val px = IntArray(w * h); b.getPixels(px, 0, w, 0, 0, w, h)
-        histView.setData(Analysis.histogram(px))
+        val hist = Analysis.histogram(px)
+        lastHist = hist
+        histView.setData(hist)
         val sm = skinMap
+        val mk = maskOverlay()
         zoom.setOverlay(when {
+            mk != null -> mk
             clipOn -> Bitmap.createBitmap(Analysis.clipMask(px), w, h, Bitmap.Config.ARGB_8888)
             skinMapOn && sm != null -> try { Crop.apply(sm.overlay(), crop) } catch (t: Throwable) { sm.overlay() }
             else -> null
-        })
+        }, blinking = mk == null)
     }
 
     private val skinOn get() = smooth > 0 || blemish
     private val invertOn get() = invert && srcPreset != null
     private val autoParams get() = AutoParams(light, skinTone, if (ref != null) refAmount else 0, ref,
         taste = taste, hints = hints, backlight = backlight)
-    private val colorEdit get() = skinOn || selected >= 0 || invertOn || defringe > 0 || autoParams.on
+    private val colorEdit get() = skinOn || selected >= 0 || invertOn || defringe > 0 || autoParams.on || (::dev.isInitialized && dev.p.on)
     private val anyEdit get() = colorEdit || !crop.isIdentity
 
     private fun loadBase() {
@@ -516,12 +563,169 @@ class EditActivity : Activity() {
         return d
     }
 
+    // ================================================================ Develop
+
+    private fun selectTab(i: Int) {
+        if (tab == 5 && i != 5) { dev.stopDrawing(); showMask(-1) }
+        tab = i
+        tabBoxes.forEachIndexed { k, v -> v.visibility = if (k == i) android.view.View.VISIBLE else android.view.View.GONE }
+        tabBtns.forEachIndexed { k, b -> Film.paintChip(this, b, k == i) }
+        if (i == 6) dev.buildStyles()
+    }
+
+    override val activity: Activity get() = this
+
+    override fun developChanged() { render() }
+
+    /** Bản đồ hướng dẫn (ảnh nhỏ) cho bước Develop, lưu đệm theo các bước phía trước. */
+    private fun guideFor(px: IntArray, w: Int, h: Int, o: EditOptions): DevelopGuide {
+        val key = "${o.preset?.slot}-${o.preset?.name}-${o.strength}-${o.ev}-${o.invert}-${o.invertStrength}-${o.invertWb}-" +
+            "${o.smooth}-${o.blemish}-${o.defringe}-${o.auto.key()}-${System.identityHashCode(skinMap)}-$w"
+        devGuide?.let { if (key == devGuideKey) return it }
+        return DevelopGuide.of(px, w, h, skinMap).also { devGuide = it; devGuideKey = key }
+    }
+
+    /** Toạ độ trên ảnh đang hiện (0..1) → toạ độ ảnh gốc (0..1), tính cả cắt / xoay và nắn ống kính. */
+    private fun toBase(nx: Float, ny: Float): FloatArray {
+        val w = (base?.width ?: 1).toFloat(); val h = (base?.height ?: 1).toFloat()
+        val q = crop.q
+        val fw = CropGeom.frameW(w, h, q); val fh = CropGeom.frameH(w, h, q)
+        val fx = (crop.l + nx * (crop.r - crop.l)) * fw; val fy = (crop.t + ny * (crop.b - crop.t)) * fh
+        val o = FloatArray(2)
+        CropGeom.map(CropGeom.invert(CropGeom.forward(w, h, crop)), fx, fy, o)
+        if (dev.p.lensOn) { val wp = Lens.Warp(w.toInt(), h.toInt(), dev.p); val o2 = FloatArray(2); wp.map(o[0], o[1], o2); o[0] = o2[0]; o[1] = o2[1] }
+        return floatArrayOf((o[0] / w).coerceIn(0f, 1f), (o[1] / h).coerceIn(0f, 1f))
+    }
+
+    /** Toạ độ ảnh gốc (0..1) → ảnh đang hiện (0..1), bỏ qua nắn ống kính (chỉ để vẽ đường dẫn). */
+    private fun fromBase(bx: Float, by: Float): FloatArray {
+        val w = (base?.width ?: 1).toFloat(); val h = (base?.height ?: 1).toFloat()
+        val q = crop.q
+        val fw = CropGeom.frameW(w, h, q); val fh = CropGeom.frameH(w, h, q)
+        val o = FloatArray(2)
+        CropGeom.map(CropGeom.forward(w, h, crop), bx * w, by * h, o)
+        return floatArrayOf((o[0] / fw - crop.l) / (crop.r - crop.l), (o[1] / fh - crop.t) / (crop.b - crop.t))
+    }
+
+    /** Đổi đường dẫn từ toạ độ ảnh gốc sang toạ độ ảnh đang hiện. */
+    private fun guidesToShown(g: FloatArray?): FloatArray? {
+        if (g == null) return null
+        val w = (base?.width ?: 1).toFloat(); val h = (base?.height ?: 1).toFloat()
+        val fw = CropGeom.frameW(w, h, crop.q)
+        val fh = CropGeom.frameH(w, h, crop.q)
+        val sx = w / ((crop.r - crop.l) * fw)   // tỉ lệ bề rộng ảnh gốc / bề rộng khung hiện
+        val sy = h / ((crop.b - crop.t) * fh)
+        val out = g.copyOf()
+        var i = 0
+        while (i < g.size) {
+            when (g[i].toInt()) {
+                1 -> { val a = fromBase(g[i + 1], g[i + 2]); val b = fromBase(g[i + 3], g[i + 4]); out[i + 1] = a[0]; out[i + 2] = a[1]; out[i + 3] = b[0]; out[i + 4] = b[1]; i += 5 }
+                2 -> { val a = fromBase(g[i + 1], g[i + 2]); out[i + 1] = a[0]; out[i + 2] = a[1]; out[i + 3] = g[i + 3] * sx; out[i + 4] = g[i + 4] * sy; i += 5 }
+                3 -> { val a = fromBase(g[i + 1], g[i + 2]); out[i + 1] = a[0]; out[i + 2] = a[1]; out[i + 3] = g[i + 3] * sx; i += 4 }
+                else -> i = g.size
+            }
+        }
+        return out
+    }
+
+    override fun pickColor(onPicked: (DoubleArray) -> Unit) {
+        pickCb = onPicked
+        Ui.toast(this, "Chạm lên ảnh để chọn màu")
+        zoom.onTap = { nx, ny ->
+            val px = preDev
+            val cb = pickCb
+            if (px != null && cb != null) {
+                val b = toBase(nx, ny)
+                val w = preDevW; val h = preDevH
+                val cx = (b[0] * w).toInt().coerceIn(0, w - 1); val cy = (b[1] * h).toInt().coerceIn(0, h - 1)
+                var r = 0.0; var g = 0.0; var bl = 0.0; var n = 0
+                for (y in (cy - 3).coerceAtLeast(0)..(cy + 3).coerceAtMost(h - 1)) for (x in (cx - 3).coerceAtLeast(0)..(cx + 3).coerceAtMost(w - 1)) {
+                    val c = px[y * w + x]; r += (c shr 16) and 255; g += (c shr 8) and 255; bl += c and 255; n++
+                }
+                cb(LabMath.toLab(r / n / 255.0, g / n / 255.0, bl / n / 255.0))
+            } else Ui.toast(this, "Chưa có ảnh xem trước, thử lại sau giây lát")
+            pickCb = null
+            zoom.onTap = null
+        }
+    }
+
+    override fun skinLab(): FloatArray? {
+        val px = preDev ?: return null
+        val m = skinMap ?: return null
+        if (m.w != preDevW || m.h != preDevH) return null
+        return ColorStats.measure(px, preDevW, preDevH, m).skin
+    }
+
+    override fun histogram(): Analysis.Hist? = lastHist
+
+    override fun editMask(index: Int, kind: String) {
+        if (index < 0) {
+            zoom.penMode = false; zoom.onPen = null; zoom.guides = null
+            return
+        }
+        zoom.penMode = true
+        val L = dev.p.layers.getOrNull(index)
+        zoom.guides = L?.let { guidesToShown(dev.guideFor(it.mask.kind, it.mask.p)) }
+        zoom.onPen = { a, nx, ny ->
+            val b = toBase(nx, ny)
+            val g = dev.pen(a, b[0], b[1])
+            zoom.guides = guidesToShown(g)
+            if (a == 2 && kind == "brush") zoom.guides = null
+        }
+        Ui.toast(this, when (kind) {
+            "brush" -> "Một ngón vẽ lên ảnh; hai ngón để phóng to"
+            "linear" -> "Kéo từ chỗ chỉnh mạnh nhất tới chỗ hết tác dụng"
+            else -> "Kéo từ tâm ra để đặt vùng tròn"
+        })
+    }
+
+    override fun showMask(index: Int) {
+        maskShow = index
+        refreshClip(shownBmp ?: base)
+    }
+
+    /** Lớp phủ đỏ của mask layer đang xem (theo khung đang cắt). */
+    private fun maskOverlay(): Bitmap? {
+        if (maskShow < 0 || !::dev.isInitialized) return null
+        val L = dev.p.layers.getOrNull(maskShow) ?: return null
+        val g = devGuide ?: run {
+            val px = preDev ?: return null
+            DevelopGuide.of(px, preDevW, preDevH, skinMap).also { devGuide = it }
+        }
+        val m = g.mask(L.mask)
+        val px = IntArray(g.w * g.h) { i -> ((m[i] * 150f).toInt().coerceIn(0, 150) shl 24) or 0xFF2A2A }
+        val bmp = Bitmap.createBitmap(px, g.w, g.h, Bitmap.Config.ARGB_8888)
+        return try { Crop.apply(bmp, crop) } catch (t: Throwable) { bmp }
+    }
+
+    override fun currentStyle(name: String) = StyleData(
+        name, dev.p.copy(layers = dev.p.layers.filter { it.mask.kind != "brush" }),
+        if (selected >= 0) Presets.all[selected].slot else null, if (selected >= 0) Presets.all[selected].name else null,
+        strength, ev, smooth, blemish, defringe, light, skinTone)
+
+    override fun applyStyle(s: StyleData) {
+        // giữ các layer vẽ tay của ảnh này, thêm layer của Style
+        val keep = dev.p.layers.filter { it.mask.kind == "brush" }
+        dev.setParams(s.dev.copy(layers = keep + s.dev.layers))
+        val pi = s.presetIndex()
+        selected = pi
+        ev = s.ev; evBar.progress = (ev * 10 + 10).toInt().coerceIn(0, 20)
+        strength = s.strength; strengthBar.progress = strength
+        smooth = s.smooth; smoothBar.progress = smooth
+        blemish = s.blemish; blemishBox.isChecked = blemish
+        defringe = s.defringe; fringeBar.progress = defringe
+        setAuto(s.light, s.skinTone)
+        updateLabels(); styleChips(); styleSkinChips()
+        render()
+    }
+
     private fun options() = EditOptions(
         preset = if (selected >= 0) Presets.all[selected] else null,
         strength = strength / 100f, ev = ev, invert = invertOn, invertStrength = invAmount / 100f, invertWb = invWb,
         smooth = smooth, blemish = blemish, defringe = defringe,
         crop = crop.takeIf { !it.isIdentity },
-        auto = autoParams
+        auto = autoParams,
+        develop = dev.p
     )
 
     /** Chạy đúng các bước chỉnh trên ảnh xem trước; trả về ảnh đã chỉnh (chưa áp tự động) và bảng tự động. */
@@ -623,7 +827,14 @@ class EditActivity : Activity() {
             val w = b.width; val h = b.height
             val px = upstream(b, o, inv)
             gradeFor(b, px, o)?.apply(px, w, h, 0, h)
-            val out = Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888)
+            preDev = px.copyOf(); preDevW = w; preDevH = h
+            val dp0 = o.develop
+            var out = Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888)
+            if (dp0.on) {
+                val g = guideFor(px, w, h, o)
+                DevelopEngine.applyAll(px, w, h, dp0, g)
+                out = Lens.apply(Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888), dp0)
+            }
             runOnUiThread {
                 if (my != token) return@runOnUiThread
                 processed = out
@@ -646,7 +857,12 @@ class EditActivity : Activity() {
                 b.getPixels(bpx, 0, b.width, 0, 0, b.width, b.height)
                 val d = skinDelta(b, bpx)
                 val g = if (o.auto.on) gradeFor(b, upstream(b, o, if (invertOn) srcPreset else null), o) else null
-                saved = Processor.processAndSave(this, uri, o, d, g)
+                val gd = if (o.develop.on) {
+                    val pre = upstream(b, o, if (invertOn) srcPreset else null)
+                    g?.apply(pre, b.width, b.height, 0, b.height)
+                    guideFor(pre, b.width, b.height, o)
+                } else null
+                saved = Processor.processAndSave(this, uri, o, d, g, gd)
                 "Đã lưu: Pictures/LookExif/${saved!!.name}"
             } catch (t: Throwable) {
                 if (t is OutOfMemoryError) "Không đủ bộ nhớ để lưu đủ độ phân giải. Chọn lưu 8MP trong Cài đặt."
@@ -666,7 +882,8 @@ class EditActivity : Activity() {
 
     /** Hiện ảnh (đã cắt / xoay theo khung đang chọn). */
     private fun show(out: Bitmap) {
-        val shown = try { Crop.apply(out, crop) } catch (t: Throwable) { out }
+        var shown = try { Crop.apply(out, crop) } catch (t: Throwable) { out }
+        if (::dev.isInitialized && dev.p.vignette != 0 && out !== base) shown = Lens.vignette(if (shown === out) shown.copy(Bitmap.Config.ARGB_8888, true) else shown, dev.p.vignette)
         val asp = shown.height.toFloat() / shown.width.coerceAtLeast(1)
         if (kotlin.math.abs(asp - previewAspect) > 0.01f) { previewAspect = asp; applyLayout() }
         val cur = shownBmp

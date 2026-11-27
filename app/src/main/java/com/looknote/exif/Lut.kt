@@ -16,15 +16,27 @@ class Lut(val size: Int, val data: FloatArray, val minV: FloatArray, val maxV: F
         val fr = pos(r, 0); val fg = pos(g, 1); val fb = pos(b, 2)
         val r0 = fr.toInt().coerceAtMost(n1 - 1); val g0 = fg.toInt().coerceAtMost(n1 - 1); val b0 = fb.toInt().coerceAtMost(n1 - 1)
         val dr = fr - r0; val dg = fg - g0; val db = fb - b0
+        // nội suy tứ diện (tetrahedral): ít lệch màu hơn nội suy ba chiều tuyến tính, chuẩn của các phần mềm màu chuyên nghiệp
+        val s1 = size
+        val i000 = ((b0 * s1 + g0) * s1 + r0) * 3
+        val sr = 3; val sg = s1 * 3; val sb = s1 * s1 * 3
         for (ch in 0 until 3) {
-            fun v(ri: Int, gi: Int, bi: Int) = data[((bi * size + gi) * size + ri) * 3 + ch]
-            val c00 = v(r0, g0, b0) + (v(r0 + 1, g0, b0) - v(r0, g0, b0)) * dr
-            val c10 = v(r0, g0 + 1, b0) + (v(r0 + 1, g0 + 1, b0) - v(r0, g0 + 1, b0)) * dr
-            val c01 = v(r0, g0, b0 + 1) + (v(r0 + 1, g0, b0 + 1) - v(r0, g0, b0 + 1)) * dr
-            val c11 = v(r0, g0 + 1, b0 + 1) + (v(r0 + 1, g0 + 1, b0 + 1) - v(r0, g0 + 1, b0 + 1)) * dr
-            val c0 = c00 + (c10 - c00) * dg
-            val c1 = c01 + (c11 - c01) * dg
-            out[ch] = c0 + (c1 - c0) * db
+            val c000 = data[i000 + ch]; val c111 = data[i000 + sr + sg + sb + ch]
+            out[ch] = if (dr >= dg) {
+                if (dg >= db) { val c100 = data[i000 + sr + ch]; val c110 = data[i000 + sr + sg + ch]
+                    c000 + dr * (c100 - c000) + dg * (c110 - c100) + db * (c111 - c110) }
+                else if (dr >= db) { val c100 = data[i000 + sr + ch]; val c101 = data[i000 + sr + sb + ch]
+                    c000 + dr * (c100 - c000) + db * (c101 - c100) + dg * (c111 - c101) }
+                else { val c001 = data[i000 + sb + ch]; val c101 = data[i000 + sr + sb + ch]
+                    c000 + db * (c001 - c000) + dr * (c101 - c001) + dg * (c111 - c101) }
+            } else {
+                if (db >= dg) { val c001 = data[i000 + sb + ch]; val c011 = data[i000 + sg + sb + ch]
+                    c000 + db * (c001 - c000) + dg * (c011 - c001) + dr * (c111 - c011) }
+                else if (db >= dr) { val c010 = data[i000 + sg + ch]; val c011 = data[i000 + sg + sb + ch]
+                    c000 + dg * (c010 - c000) + db * (c011 - c010) + dr * (c111 - c011) }
+                else { val c010 = data[i000 + sg + ch]; val c110 = data[i000 + sr + sg + ch]
+                    c000 + dg * (c010 - c000) + dr * (c110 - c010) + db * (c111 - c110) }
+            }
         }
     }
 
